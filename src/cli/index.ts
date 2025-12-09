@@ -139,6 +139,8 @@ Headless: ${args.headless}
 ╚════════════════════════════════════════════════════════════╝
 
 수집된 직무 수: ${result.totalCount}
+처리된 페이지: ${result.pagesProcessed}
+제거된 중복: ${result.duplicatesRemoved}
 소요 시간: ${duration}초
 결과 파일: ${outputPath}
 `);

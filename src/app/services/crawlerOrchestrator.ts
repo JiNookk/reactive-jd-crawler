@@ -11,6 +11,8 @@ export interface CrawlOptions {
   maxPages?: number;
   includeDetails?: boolean;
   headless?: boolean;
+  retryCount?: number;
+  retryDelay?: number;
 }
 
 export interface CrawlResult {
@@ -20,6 +22,8 @@ export interface CrawlResult {
   totalCount: number;
   crawledAt: string;
   errors: string[];
+  pagesProcessed: number;
+  duplicatesRemoved: number;
 }
 
 export class CrawlerOrchestrator {
@@ -39,6 +43,9 @@ export class CrawlerOrchestrator {
     const errors: string[] = [];
     const allJobs: JobPosting[] = [];
     const crawledAt = new Date().toISOString();
+    const seenJobKeys = new Set<string>();
+    let pagesProcessed = 0;
+    let duplicatesRemoved = 0;
 
     try {
       // 캐시 로드
@@ -87,21 +94,38 @@ export class CrawlerOrchestrator {
         console.log(`[Cache] 구조 캐시 저장: ${cacheKey}`);
       }
 
-      // 데이터 추출
+      // 데이터 추출 (첫 페이지)
       console.log(`[Extractor] 직무 데이터 추출 중...`);
       const jobs = await this.extractor.extractFromListPage(page, structure, options.company);
-      allJobs.push(...jobs);
-      console.log(`[Extractor] ${jobs.length}개 직무 추출 완료`);
+
+      // 중복 제거하며 추가
+      for (const job of jobs) {
+        const jobKey = this.generateJobKey(job);
+        if (!seenJobKeys.has(jobKey)) {
+          seenJobKeys.add(jobKey);
+          allJobs.push(job);
+        } else {
+          duplicatesRemoved++;
+        }
+      }
+      pagesProcessed = 1;
+      console.log(`[Extractor] 페이지 1: ${jobs.length}개 직무 추출 (신규: ${jobs.length - duplicatesRemoved}개)`);
 
       // 페이지네이션 처리
       if (structure.pagination && options.maxPages && options.maxPages > 1) {
-        const additionalJobs = await this.handlePagination(
+        const paginationResult = await this.handlePagination(
           page,
           structure,
           options.company,
-          options.maxPages - 1
+          options.maxPages - 1,
+          seenJobKeys,
+          options.retryCount ?? 2,
+          options.retryDelay ?? 1000
         );
-        allJobs.push(...additionalJobs);
+
+        allJobs.push(...paginationResult.jobs);
+        pagesProcessed += paginationResult.pagesProcessed;
+        duplicatesRemoved += paginationResult.duplicatesRemoved;
       }
 
       await page.close();
@@ -128,6 +152,8 @@ export class CrawlerOrchestrator {
       totalCount: allJobs.length,
       crawledAt,
       errors,
+      pagesProcessed,
+      duplicatesRemoved,
     };
   }
 
@@ -135,55 +161,156 @@ export class CrawlerOrchestrator {
     page: any,
     structure: PageStructure,
     company: string,
-    maxPages: number
-  ): Promise<JobPosting[]> {
+    maxPages: number,
+    seenJobKeys: Set<string>,
+    retryCount: number,
+    retryDelay: number
+  ): Promise<{ jobs: JobPosting[]; pagesProcessed: number; duplicatesRemoved: number }> {
     const allJobs: JobPosting[] = [];
     const pagination = structure.pagination;
+    let pagesProcessed = 0;
+    let duplicatesRemoved = 0;
 
     if (!pagination || pagination.type === 'none') {
-      return allJobs;
+      return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
     }
 
-    for (let i = 0; i < maxPages; i++) {
-      try {
-        let hasNextPage = false;
+    for (let pageNum = 0; pageNum < maxPages; pageNum++) {
+      const currentPageDisplay = pageNum + 2; // 첫 페이지가 1이므로 2부터 시작
+      let success = false;
+      let lastError: Error | null = null;
 
-        if (pagination.type === 'button' && pagination.nextSelector) {
-          // 다음 버튼 클릭
-          const nextButton = await page.$(pagination.nextSelector);
-          if (nextButton) {
-            const isDisabled = await nextButton.getAttribute('disabled');
-            if (!isDisabled) {
-              await nextButton.click();
-              await page.waitForTimeout(2000);
-              hasNextPage = true;
+      // 재시도 로직
+      for (let attempt = 0; attempt <= retryCount; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[Pagination] 페이지 ${currentPageDisplay} 재시도 (${attempt}/${retryCount})...`);
+            await this.delay(retryDelay * attempt); // 지수 백오프
+          }
+
+          const hasNextPage = await this.navigateToNextPage(page, pagination, currentPageDisplay);
+
+          if (!hasNextPage) {
+            console.log(`[Pagination] 더 이상 페이지 없음 (페이지 ${currentPageDisplay - 1}에서 종료)`);
+            return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
+          }
+
+          // 추가 데이터 추출
+          const jobs = await this.extractor.extractFromListPage(page, structure, company);
+          let newJobsCount = 0;
+
+          // 중복 제거하며 추가
+          for (const job of jobs) {
+            const jobKey = this.generateJobKey(job);
+            if (!seenJobKeys.has(jobKey)) {
+              seenJobKeys.add(jobKey);
+              allJobs.push(job);
+              newJobsCount++;
+            } else {
+              duplicatesRemoved++;
             }
           }
-        } else if (pagination.type === 'infinite-scroll') {
-          // 무한 스크롤
-          const previousHeight = await page.evaluate(() => document.body.scrollHeight);
-          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-          await page.waitForTimeout(2000);
-          const newHeight = await page.evaluate(() => document.body.scrollHeight);
-          hasNextPage = newHeight > previousHeight;
-        }
 
-        if (!hasNextPage) {
-          console.log(`[Pagination] 더 이상 페이지 없음`);
+          pagesProcessed++;
+          console.log(`[Pagination] 페이지 ${currentPageDisplay}: ${jobs.length}개 추출 (신규: ${newJobsCount}개, 중복: ${jobs.length - newJobsCount}개)`);
+
+          // Rate limiting
+          await this.delay(1000);
+          success = true;
           break;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          if (attempt === retryCount) {
+            console.warn(`[Pagination] 페이지 ${currentPageDisplay} 처리 실패 (${retryCount}회 재시도 후): ${lastError.message}`);
+          }
         }
+      }
 
-        // 추가 데이터 추출
-        const jobs = await this.extractor.extractFromListPage(page, structure, company);
-        allJobs.push(...jobs);
-        console.log(`[Pagination] 페이지 ${i + 2}: ${jobs.length}개 직무 추출`);
-      } catch (error) {
-        console.warn(`[Pagination] 페이지 ${i + 2} 처리 실패:`, error);
+      if (!success) {
+        console.log(`[Pagination] 페이지 ${currentPageDisplay}에서 중단`);
         break;
       }
     }
 
-    return allJobs;
+    return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
+  }
+
+  private async navigateToNextPage(
+    page: any,
+    pagination: NonNullable<PageStructure['pagination']>,
+    targetPage: number
+  ): Promise<boolean> {
+    if (pagination.type === 'button' && pagination.nextSelector) {
+      // 다음 버튼 클릭
+      const nextButton = await page.$(pagination.nextSelector);
+      if (nextButton) {
+        const isDisabled = await nextButton.getAttribute('disabled');
+        const ariaDisabled = await nextButton.getAttribute('aria-disabled');
+        const classList = await nextButton.getAttribute('class');
+        const isVisuallyDisabled = classList?.includes('disabled') || classList?.includes('inactive');
+
+        if (!isDisabled && ariaDisabled !== 'true' && !isVisuallyDisabled) {
+          await nextButton.click();
+          await page.waitForTimeout(2000);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (pagination.type === 'infinite-scroll') {
+      // 무한 스크롤
+      const scrollContainer = pagination.scrollContainer || 'body';
+      const previousHeight = await page.evaluate(
+        (selector: string) => {
+          const el = selector === 'body' ? document.body : document.querySelector(selector);
+          return el?.scrollHeight ?? 0;
+        },
+        scrollContainer
+      );
+
+      await page.evaluate(
+        (selector: string) => {
+          const el = selector === 'body' ? document.body : document.querySelector(selector);
+          if (el) {
+            el.scrollTo(0, el.scrollHeight);
+          } else {
+            window.scrollTo(0, document.body.scrollHeight);
+          }
+        },
+        scrollContainer
+      );
+
+      await page.waitForTimeout(2000);
+
+      const newHeight = await page.evaluate(
+        (selector: string) => {
+          const el = selector === 'body' ? document.body : document.querySelector(selector);
+          return el?.scrollHeight ?? 0;
+        },
+        scrollContainer
+      );
+
+      return newHeight > previousHeight;
+    }
+
+    if (pagination.type === 'url-param' && pagination.paramName) {
+      // URL 파라미터 방식
+      const currentUrl = new URL(page.url());
+      const paramStart = pagination.paramStart ?? 1;
+      const nextPageValue = paramStart + targetPage - 1;
+
+      currentUrl.searchParams.set(pagination.paramName, String(nextPageValue));
+
+      await page.goto(currentUrl.toString(), {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+      });
+      await page.waitForTimeout(2000);
+      return true;
+    }
+
+    return false;
   }
 
   private async crawlDetailPages(
@@ -277,5 +404,13 @@ export class CrawlerOrchestrator {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private generateJobKey(job: JobPosting): string {
+    // 제목 + 위치 + 회사로 고유 키 생성
+    const normalizedTitle = job.title.toLowerCase().trim();
+    const normalizedLocation = (job.location || '').toLowerCase().trim();
+    const normalizedCompany = job.company.toLowerCase().trim();
+    return `${normalizedCompany}:${normalizedTitle}:${normalizedLocation}`;
   }
 }
