@@ -1,0 +1,73 @@
+{
+  "jobs.booking.com/booking/jobs": {
+    "pageType": "list",
+    "urlPattern": "/booking/jobs",
+    "selectors": {
+      "jobList": "mat-accordion.cards",
+      "jobItem": "mat-expansion-panel.search-result-item",
+      "title": ".job-title-link span[itemprop='title']",
+      "location": ".label-value.location",
+      "department": ".categories.label-value",
+      "detailLink": ".job-title-link"
+    },
+    "analyzedAt": "2025-12-08T09:53:25.925Z",
+    "expiresAt": "2025-12-15T09:53:25.925Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".mat-paginator-navigation-next:not(.mat-button-disabled)"
+    }
+  },
+  "careers.tencent.com/en-us/search.html": {
+    "pageType": "list",
+    "urlPattern": "/en-us/search.html",
+    "selectors": {
+      "jobList": ".correlation-degree",
+      "jobItem": ".recruit-list",
+      "title": ".job-recruit-title",
+      "location": ".job-recruit-location",
+      "department": ".recruit-tips span:first-child",
+      "detailLink": ".recruit-list-link"
+    },
+    "analyzedAt": "2025-12-08T09:55:03.116Z",
+    "expiresAt": "2025-12-15T09:55:03.116Z",
+    "pagination": {
+      "type": "none"
+    }
+  },
+  "talent.ele.me/off-campus/position-list": {
+    "pageType": "list",
+    "urlPattern": "/off-campus/position-list",
+    "selectors": {
+      "jobList": ".lDOITgXtGWpYKcIGbvzvn",
+      "jobItem": "._2AOmjKmlEtuR_KEoehWYcN",
+      "title": "._1RRlPtjyYmeDGCWt9lrk2P",
+      "location": "._3CJNtKfv5mLnNfeqL1jgRB ._3vj2eS7k7Mwpko5_6OSRu2",
+      "department": "._1KYNSENqWg4IDHby5E9sqK ._3vj2eS7k7Mwpko5_6OSRu2",
+      "detailLink": "._2AOmjKmlEtuR_KEoehWYcN"
+    },
+    "analyzedAt": "2025-12-08T09:55:22.448Z",
+    "expiresAt": "2025-12-15T09:55:22.448Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".next-pagination .next-next:not([disabled])"
+    }
+  },
+  "talent.taotian.com/off-campus/position-list": {
+    "pageType": "list",
+    "urlPattern": "/off-campus/position-list",
+    "selectors": {
+      "jobList": ".lDOITgXtGWpYKcIGbvzvn",
+      "jobItem": "._2AOmjKmlEtuR_KEoehWYcN",
+      "title": "._1RRlPtjyYmeDGCWt9lrk2P",
+      "location": "._3CJNtKfv5mLnNfeqL1jgRB ._3vj2eS7k7Mwpko5_6OSRu2",
+      "department": null,
+      "detailLink": null
+    },
+    "analyzedAt": "2025-12-08T09:56:00.317Z",
+    "expiresAt": "2025-12-15T09:56:00.317Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".next-pagination-item.next-next:not([disabled])"
+    }
+  }
+}
