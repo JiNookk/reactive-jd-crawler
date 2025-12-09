@@ -10,6 +10,7 @@ interface CliArgs {
   maxPages: number;
   headless: boolean;
   output: string;
+  includeDetails: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -21,6 +22,7 @@ function parseArgs(): CliArgs {
     maxPages: 1,
     headless: true,
     output: './output',
+    includeDetails: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -34,6 +36,8 @@ function parseArgs(): CliArgs {
       result.maxPages = parseInt(args[++i] || '1', 10);
     } else if (arg === '--no-headless') {
       result.headless = false;
+    } else if (arg === '--details' || arg === '-d') {
+      result.includeDetails = true;
     } else if (arg === '--output' || arg === '-o') {
       result.output = args[++i] || './output';
     } else if (arg === '--help' || arg === '-h') {
@@ -60,6 +64,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   -u, --url <url>         크롤링할 채용 페이지 URL (필수)
   -c, --company <company> 회사명 (필수)
   -m, --max-pages <n>     최대 페이지 수 (기본: 1)
+  -d, --details           상세 페이지도 크롤링 (JD 전문 수집)
   -o, --output <dir>      출력 디렉토리 (기본: ./output)
   --no-headless           브라우저 UI 표시
   -h, --help              도움말 표시
@@ -100,6 +105,7 @@ async function main(): Promise<void> {
 대상 URL: ${args.url}
 회사명: ${args.company}
 최대 페이지: ${args.maxPages}
+상세 페이지: ${args.includeDetails ? '예' : '아니오'}
 Headless: ${args.headless}
 출력 디렉토리: ${args.output}
 `);
@@ -117,6 +123,7 @@ Headless: ${args.headless}
     const result = await crawler.crawl(args.url, {
       company: args.company,
       maxPages: args.maxPages,
+      includeDetails: args.includeDetails,
     });
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -148,6 +155,10 @@ Headless: ${args.headless}
         console.log(`  ${i + 1}. ${job.title}`);
         if (job.location) console.log(`     위치: ${job.location}`);
         if (job.department) console.log(`     부서: ${job.department}`);
+        if (job.description) {
+          const shortDesc = job.description.slice(0, 100) + (job.description.length > 100 ? '...' : '');
+          console.log(`     설명: ${shortDesc}`);
+        }
       });
     }
   } catch (error) {
