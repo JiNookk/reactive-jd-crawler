@@ -216,6 +216,12 @@ describe('PageStructure 도메인', () => {
         },
         analyzedAt: '2025-01-15T10:00:00.000Z',
         expiresAt: '2025-01-22T10:00:00.000Z',
+        metadata: {
+          version: 1,
+          hitCount: 0,
+          lastHitAt: null,
+          failCount: 0,
+        },
       });
     });
 
@@ -243,6 +249,287 @@ describe('PageStructure 도메인', () => {
       expect(structure.pageType).toBe('list');
       expect(structure.urlPattern).toBe('/jobs');
       expect(structure.selectors.jobList).toBe('.job-list');
+    });
+  });
+
+  describe('캐시 메타데이터', () => {
+    it('생성 시 버전은 1로 초기화된다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: now,
+      });
+
+      // Then
+      expect(structure.metadata.version).toBe(1);
+    });
+
+    it('생성 시 hitCount는 0으로 초기화된다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: now,
+      });
+
+      // Then
+      expect(structure.metadata.hitCount).toBe(0);
+      expect(structure.metadata.lastHitAt).toBeNull();
+    });
+
+    it('생성 시 failCount는 0으로 초기화된다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: now,
+      });
+
+      // Then
+      expect(structure.metadata.failCount).toBe(0);
+    });
+
+    it('recordHit으로 히트를 기록할 수 있다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const hitTime = new Date('2025-01-16T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const updated = structure.recordHit(hitTime);
+
+      // Then
+      expect(updated.metadata.hitCount).toBe(1);
+      expect(updated.metadata.lastHitAt).toBe('2025-01-16T10:00:00.000Z');
+    });
+
+    it('recordHit을 여러 번 호출하면 카운트가 증가한다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const hit1 = structure.recordHit(new Date('2025-01-16T10:00:00Z'));
+      const hit2 = hit1.recordHit(new Date('2025-01-17T10:00:00Z'));
+      const hit3 = hit2.recordHit(new Date('2025-01-18T10:00:00Z'));
+
+      // Then
+      expect(hit3.metadata.hitCount).toBe(3);
+      expect(hit3.metadata.lastHitAt).toBe('2025-01-18T10:00:00.000Z');
+    });
+
+    it('recordFail로 실패를 기록할 수 있다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const updated = structure.recordFail();
+
+      // Then
+      expect(updated.metadata.failCount).toBe(1);
+    });
+
+    it('recordFail을 여러 번 호출하면 카운트가 증가한다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const fail1 = structure.recordFail();
+      const fail2 = fail1.recordFail();
+      const fail3 = fail2.recordFail();
+
+      // Then
+      expect(fail3.metadata.failCount).toBe(3);
+    });
+
+    it('shouldInvalidate는 연속 실패가 3회 이상이면 true를 반환한다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const fail1 = structure.recordFail();
+      const fail2 = fail1.recordFail();
+      const fail3 = fail2.recordFail();
+
+      // Then
+      expect(fail1.shouldInvalidate()).toBe(false);
+      expect(fail2.shouldInvalidate()).toBe(false);
+      expect(fail3.shouldInvalidate()).toBe(true);
+    });
+
+    it('recordHit을 호출하면 failCount가 리셋된다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const fail1 = structure.recordFail();
+      const fail2 = fail1.recordFail();
+      const hit = fail2.recordHit(new Date('2025-01-16T10:00:00Z'));
+
+      // Then
+      expect(hit.metadata.failCount).toBe(0);
+      expect(hit.metadata.hitCount).toBe(1);
+    });
+
+    it('incrementVersion으로 버전을 증가시킬 수 있다', () => {
+      // Given
+      const analyzedAt = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt,
+      });
+
+      // When
+      const updated = structure.incrementVersion();
+
+      // Then
+      expect(updated.metadata.version).toBe(2);
+    });
+
+    it('toJSON에 metadata가 포함된다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: now,
+      });
+      const updated = structure.recordHit(new Date('2025-01-16T10:00:00Z'));
+
+      // When
+      const json = updated.toJSON();
+
+      // Then
+      expect(json.metadata).toEqual({
+        version: 1,
+        hitCount: 1,
+        lastHitAt: '2025-01-16T10:00:00.000Z',
+        failCount: 0,
+      });
+    });
+
+    it('fromJSON에서 metadata가 복원된다', () => {
+      // Given
+      const json = {
+        pageType: 'list' as PageType,
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: '2025-01-15T10:00:00.000Z',
+        expiresAt: '2025-01-22T10:00:00.000Z',
+        metadata: {
+          version: 3,
+          hitCount: 10,
+          lastHitAt: '2025-01-20T10:00:00.000Z',
+          failCount: 1,
+        },
+      };
+
+      // When
+      const structure = PageStructure.fromJSON(json);
+
+      // Then
+      expect(structure.metadata.version).toBe(3);
+      expect(structure.metadata.hitCount).toBe(10);
+      expect(structure.metadata.lastHitAt).toBe('2025-01-20T10:00:00.000Z');
+      expect(structure.metadata.failCount).toBe(1);
+    });
+
+    it('fromJSON에서 metadata가 없으면 기본값으로 초기화된다', () => {
+      // Given: 기존 캐시 형식 (metadata 없음)
+      const json = {
+        pageType: 'list' as PageType,
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+        },
+        analyzedAt: '2025-01-15T10:00:00.000Z',
+        expiresAt: '2025-01-22T10:00:00.000Z',
+      };
+
+      // When
+      const structure = PageStructure.fromJSON(json);
+
+      // Then
+      expect(structure.metadata.version).toBe(1);
+      expect(structure.metadata.hitCount).toBe(0);
+      expect(structure.metadata.lastHitAt).toBeNull();
+      expect(structure.metadata.failCount).toBe(0);
     });
   });
 });

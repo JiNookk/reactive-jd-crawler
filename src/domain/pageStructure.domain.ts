@@ -49,6 +49,23 @@ export interface DetailPageProps {
   analyzedAt: Date;
 }
 
+// 캐시 메타데이터
+export interface CacheMetadata {
+  version: number;
+  hitCount: number;
+  lastHitAt: string | null;
+  failCount: number;
+}
+
+const DEFAULT_METADATA: CacheMetadata = {
+  version: 1,
+  hitCount: 0,
+  lastHitAt: null,
+  failCount: 0,
+};
+
+const INVALIDATE_FAIL_THRESHOLD = 3;
+
 export interface PageStructureJSON {
   pageType: PageType;
   urlPattern: string;
@@ -56,6 +73,7 @@ export interface PageStructureJSON {
   pagination?: PaginationConfig;
   analyzedAt: string;
   expiresAt: string;
+  metadata?: CacheMetadata;
 }
 
 const CACHE_EXPIRY_DAYS = 7;
@@ -67,8 +85,60 @@ export class PageStructure {
     public readonly selectors: ListPageSelectors | DetailPageSelectors,
     public readonly analyzedAt: string,
     public readonly expiresAt: string,
-    public readonly pagination?: PaginationConfig
+    public readonly pagination: PaginationConfig | undefined,
+    public readonly metadata: CacheMetadata
   ) {}
+
+  recordHit(hitTime: Date): PageStructure {
+    return new PageStructure(
+      this.pageType,
+      this.urlPattern,
+      this.selectors,
+      this.analyzedAt,
+      this.expiresAt,
+      this.pagination,
+      {
+        ...this.metadata,
+        hitCount: this.metadata.hitCount + 1,
+        lastHitAt: hitTime.toISOString(),
+        failCount: 0, // 성공 시 실패 카운트 리셋
+      }
+    );
+  }
+
+  recordFail(): PageStructure {
+    return new PageStructure(
+      this.pageType,
+      this.urlPattern,
+      this.selectors,
+      this.analyzedAt,
+      this.expiresAt,
+      this.pagination,
+      {
+        ...this.metadata,
+        failCount: this.metadata.failCount + 1,
+      }
+    );
+  }
+
+  shouldInvalidate(): boolean {
+    return this.metadata.failCount >= INVALIDATE_FAIL_THRESHOLD;
+  }
+
+  incrementVersion(): PageStructure {
+    return new PageStructure(
+      this.pageType,
+      this.urlPattern,
+      this.selectors,
+      this.analyzedAt,
+      this.expiresAt,
+      this.pagination,
+      {
+        ...this.metadata,
+        version: this.metadata.version + 1,
+      }
+    );
+  }
 
   static createListPage(props: ListPageProps): PageStructure {
     // 유효성 검사
@@ -89,7 +159,8 @@ export class PageStructure {
       props.selectors,
       props.analyzedAt.toISOString(),
       expiresAt.toISOString(),
-      props.pagination
+      props.pagination,
+      DEFAULT_METADATA
     );
   }
 
@@ -102,7 +173,9 @@ export class PageStructure {
       props.urlPattern,
       props.selectors,
       props.analyzedAt.toISOString(),
-      expiresAt.toISOString()
+      expiresAt.toISOString(),
+      undefined,
+      DEFAULT_METADATA
     );
   }
 
@@ -125,7 +198,8 @@ export class PageStructure {
       json.selectors,
       json.analyzedAt,
       json.expiresAt,
-      json.pagination
+      json.pagination,
+      json.metadata ?? DEFAULT_METADATA
     );
   }
 
@@ -140,6 +214,7 @@ export class PageStructure {
       selectors: this.selectors,
       analyzedAt: this.analyzedAt,
       expiresAt: this.expiresAt,
+      metadata: this.metadata,
     };
 
     if (this.pagination) {

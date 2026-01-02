@@ -13,7 +13,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "crawl": "tsx src/cli/index.ts",
-    "batch": "tsx src/cli/batchCrawl.ts"
+    "batch": "tsx src/cli/batchCrawl.ts",
+    "cache:stats": "tsx src/cli/cacheStats.ts"
   },
   "keywords": [
     "crawler",

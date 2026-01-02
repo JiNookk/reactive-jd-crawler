@@ -52,6 +52,12 @@ interface AgentState {
   extractedJobs: ExtractedJob[];
   done: boolean;
   consecutiveNoNewJobs: number;
+  // 무한 루프 감지용
+  lastAction: { toolName: string; toolInput: string } | null;
+  consecutiveSameAction: number;
+  // 스크롤 위치 추적 (무한 스크롤 종료 감지)
+  lastScrollPosition: number;
+  consecutiveScrollNoProgress: number;
 }
 
 // 각 스텝 기록
@@ -67,6 +73,8 @@ interface AgentStep {
 // 설정
 const MAX_STEPS = 30;
 const MAX_CONSECUTIVE_NO_NEW = 3;
+const MAX_CONSECUTIVE_SAME_ACTION = 3; // 동일 액션 연속 실행 제한
+const MAX_NAVIGATE_RETRIES = 3; // 페이지 로딩 재시도 횟수
 
 const SYSTEM_PROMPT = `당신은 채용 사이트에서 직무 공고를 수집하는 크롤러 에이전트입니다.
 
@@ -97,17 +105,95 @@ const SYSTEM_PROMPT = `당신은 채용 사이트에서 직무 공고를 수집�
 - 연속으로 3번 새 직무가 없을 때
 - 더 이상 다음 페이지가 없을 때
 
-## 주의사항
-- 셀렉터를 추측할 때는 get_page_info 결과를 참고하세요
-- 실패하면 다른 셀렉터나 방법을 시도하세요
-- 무한 루프에 빠지지 않도록 주의하세요
+## 페이지네이션 탐지 가이드
+페이지네이션 유형을 파악하고 적절히 대응하세요:
+
+### 1. 버튼 클릭 페이지네이션
+- "Next", "다음", ">" 버튼 찾기
+- "Load More", "더 보기", "View More" 버튼 찾기
+- 페이지 번호 버튼 (1, 2, 3...) 클릭
+
+### 2. 무한 스크롤
+- scroll 도구를 사용해서 아래로 스크롤
+- **스크롤 후 반드시 wait으로 1-2초 대기** (콘텐츠 로딩 필요)
+- **스크롤 결과에서 atBottom: true가 나오면 종료 조건**
+- 연속 3회 스크롤해도 새 직무가 없으면 페이지 끝으로 판단
+
+### 3. URL 파라미터 페이지네이션
+- 현재 URL에서 page=1, offset=0 등의 파라미터 확인
+- navigate로 직접 다음 페이지 URL로 이동
+- 예: ?page=1 → ?page=2, ?offset=0 → ?offset=20
+
+### 중요: 페이지네이션 종료 감지
+- "다음" 버튼이 비활성화되거나 없어지면 종료
+- 마지막 페이지 번호에 도달하면 종료
+- 무한 스크롤에서 더 이상 새 콘텐츠가 로드되지 않으면 종료
+- 결과 수(예: "Showing 195-215 of 215")를 확인해서 마지막인지 판단
+
+## 에러 복구 전략
+도구 실행이 실패하면 다음 대안을 시도하세요:
+
+### 셀렉터 실패 시
+1. get_page_info로 현재 상태 재확인
+2. 다른 셀렉터 시도 (예: .job-card → .job-item → [class*="job"])
+3. 더 일반적인 셀렉터 시도 (예: article, li, div[role="listitem"])
+
+### 클릭 실패 시
+1. 요소가 보이지 않으면 scroll로 화면에 보이게 이동
+2. wait으로 로딩 대기 후 재시도
+3. 다른 셀렉터로 같은 요소 시도
+
+### 페이지 로딩 실패 시
+1. wait으로 2-3초 대기 후 재시도
+2. navigate로 같은 URL 재시도
+3. 여전히 실패하면 원래 URL로 복귀
+
+### 무한 루프 감지
+- 같은 액션을 3회 이상 연속으로 반복하지 마세요
+- 진전이 없으면 다른 전략을 시도하세요
+- 막히면 get_page_info로 상황을 재파악하세요
 
 ## 모달/팝업 처리 주의사항
 - 언어/지역 선택 모달이 나타나면 주의하세요
 - "dark-bg" 클래스 버튼은 주로 언어 변경(예: 한국어 선택)입니다 - 클릭하면 다른 지역 사이트로 리다이렉트됩니다
 - "Continue", "Close", "X" 버튼이나 모달 외부를 클릭해서 모달을 닫으세요
 - 만약 잘못된 페이지로 이동했다면, navigate로 원래 URL로 돌아가세요
-- 같은 실수를 반복하지 마세요 - 이전에 한국어 페이지로 리다이렉트됐다면 다른 방법을 시도하세요`;
+- 같은 실수를 반복하지 마세요 - 이전에 한국어 페이지로 리다이렉트됐다면 다른 방법을 시도하세요
+
+## 대형 채용 플랫폼별 가이드
+
+### 원티드 (wanted.co.kr)
+- 직무 카드: .JobCard, [class*="JobCard"], .Card_card
+- 무한 스크롤 사용 (scroll 도구 활용)
+- 상세 페이지: 모달 형태일 수 있음 (직무 카드 클릭 시)
+- 필터: 상단에 위치, 직군/연차/지역 선택 가능
+- URL 패턴: /wdlist/[직군코드]?country=kr
+
+### 잡코리아 (jobkorea.co.kr)
+- 직무 카드: .list-item, .recruit-info, .job-list-item
+- 버튼 클릭 페이지네이션 (번호 또는 다음 버튼)
+- 페이지네이션: .pagination, .tplPagination
+- 결과 수: 상단에 "N개의 채용공고" 표시
+- URL 패턴: /Search/?stext=...&Page_No=N
+
+### 사람인 (saramin.co.kr)
+- 직무 카드: .item_recruit, .list_body, .box_item
+- 버튼 클릭 페이지네이션
+- 페이지네이션: .pagination, .btnPrev/.btnNext
+- 필터 패널: 좌측에 상세 필터 제공
+- URL 패턴: /zf_user/jobs/list/...
+
+### 링크드인 (linkedin.com/jobs)
+- 직무 카드: .job-card-container, .jobs-search-results__list-item
+- 무한 스크롤 또는 "Show more jobs" 버튼
+- 로그인 유도 모달: ESC 또는 X 버튼으로 닫기
+- 로그인 없이 제한된 결과만 표시될 수 있음
+- 일부 상세 정보는 로그인 필요
+
+### 공통 주의사항
+- 대형 사이트는 봇 감지 기능이 있을 수 있음 (적절한 대기 시간 사용)
+- 너무 빠른 요청은 429 에러 발생 가능 (wait 도구 활용)
+- 팝업/모달이 자주 등장하므로 닫기 버튼 확인`;
 
 export class CrawlerAgent {
   private client: Anthropic;
@@ -133,6 +219,10 @@ export class CrawlerAgent {
       extractedJobs: [],
       done: false,
       consecutiveNoNewJobs: 0,
+      lastAction: null,
+      consecutiveSameAction: 0,
+      lastScrollPosition: 0,
+      consecutiveScrollNoProgress: 0,
     };
   }
 
@@ -198,12 +288,43 @@ URL: ${url}
 
         const toolName = toolUseBlock.name;
         const toolInput = toolUseBlock.input;
+        const toolInputStr = JSON.stringify(toolInput);
 
         this.logger.log(`\n[🔧 Action] ${toolName}`);
         this.logger.log(`[📥 Input] ${JSON.stringify(toolInput, null, 2)}`);
 
-        // 도구 실행
-        const result = await this.toolExecutor.execute(toolName, toolInput);
+        // 무한 루프 감지
+        if (
+          this.state.lastAction &&
+          this.state.lastAction.toolName === toolName &&
+          this.state.lastAction.toolInput === toolInputStr
+        ) {
+          this.state.consecutiveSameAction++;
+          if (this.state.consecutiveSameAction >= MAX_CONSECUTIVE_SAME_ACTION) {
+            this.logger.log(
+              `[⚠️ 경고] 동일한 액션이 ${this.state.consecutiveSameAction}회 연속 실행됨 - 무한 루프 가능성`
+            );
+          }
+        } else {
+          this.state.consecutiveSameAction = 1;
+        }
+        this.state.lastAction = { toolName, toolInput: toolInputStr };
+
+        // 도구 실행 (navigate는 재시도 로직 포함)
+        let result = await this.toolExecutor.execute(toolName, toolInput);
+
+        // navigate 실패 시 재시도
+        if (toolName === 'navigate' && !result.success) {
+          for (let retry = 1; retry <= MAX_NAVIGATE_RETRIES; retry++) {
+            this.logger.log(`[🔄 재시도] navigate ${retry}/${MAX_NAVIGATE_RETRIES}...`);
+            await this.page.waitForTimeout(2000); // 재시도 전 대기
+            result = await this.toolExecutor.execute(toolName, toolInput);
+            if (result.success) {
+              this.logger.log(`[✅ 재시도 성공] ${retry}번째 시도에서 성공`);
+              break;
+            }
+          }
+        }
 
         this.logger.log(`\n[📤 Observation] ${result.success ? '✅ 성공' : '❌ 실패'}`);
         if (result.error) {
@@ -223,6 +344,16 @@ URL: ${url}
               this.logger.log(`  - 직무 링크: ${info.jobLinks.length}개`);
               this.logger.log(`  - 버튼: ${info.visibleButtons.length}개`);
               this.logger.log(`  - 페이지네이션: ${info.paginationInfo || '없음'}`);
+              this.logger.log(`  - 페이지네이션 타입: ${info.paginationType.type}`);
+              if (info.paginationType.nextSelector) {
+                this.logger.log(`    └ Next 셀렉터: ${info.paginationType.nextSelector}`);
+              }
+              if (info.paginationType.loadMoreSelector) {
+                this.logger.log(`    └ Load More 셀렉터: ${info.paginationType.loadMoreSelector}`);
+              }
+              if (info.paginationType.urlPattern) {
+                this.logger.log(`    └ URL 패턴: ${info.paginationType.urlPattern}`);
+              }
               this.logger.log(`  - 결과 수: ${info.resultCount || '표시 없음'}`);
               if (info.jobLinks.length > 0) {
                 this.logger.log(`  - 직무 링크 샘플:`);
@@ -235,6 +366,38 @@ URL: ${url}
             }
           } else {
             this.logger.log(`[Data] ${dataStr}`);
+          }
+        }
+
+        // 특별 처리: scroll 결과 (무한 스크롤 종료 감지)
+        if (toolName === 'scroll' && result.success && result.data) {
+          const scrollData = result.data as {
+            currentPosition: number;
+            maxPosition: number;
+            atBottom: boolean;
+          };
+
+          // 스크롤 위치 진전 확인
+          if (scrollData.currentPosition === this.state.lastScrollPosition) {
+            this.state.consecutiveScrollNoProgress++;
+            this.logger.log(
+              `[📜 스크롤] 위치 변화 없음 (연속 ${this.state.consecutiveScrollNoProgress}회)`
+            );
+          } else {
+            this.state.consecutiveScrollNoProgress = 0;
+          }
+          this.state.lastScrollPosition = scrollData.currentPosition;
+
+          // 페이지 끝 도달 감지
+          if (scrollData.atBottom) {
+            this.logger.log('[📜 스크롤] 페이지 끝에 도달함');
+          }
+
+          // 연속 3회 스크롤해도 진전 없으면 경고
+          if (this.state.consecutiveScrollNoProgress >= 3) {
+            this.logger.log(
+              '[⚠️ 경고] 스크롤 3회 연속 진전 없음 - 무한 스크롤 종료 또는 로딩 지연 가능성'
+            );
           }
         }
 

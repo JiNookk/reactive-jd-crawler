@@ -30,6 +30,15 @@ export interface PageInfo {
   visibleButtons: { text: string; selector: string; tagName: string }[];
   // 페이지네이션 정보
   paginationInfo: string | null;
+  // 페이지네이션 타입 감지
+  paginationType: {
+    type: 'button' | 'load-more' | 'infinite-scroll' | 'url-param' | 'none' | 'unknown';
+    nextSelector?: string;
+    loadMoreSelector?: string;
+    currentPage?: number;
+    totalPages?: number;
+    urlPattern?: string;
+  };
   // 필터/드롭다운 정보
   filterInfo: { text: string; tagName: string; className: string }[];
   // 모달 여부
@@ -292,6 +301,169 @@ export class ToolExecutor {
       const resultMatch = bodyText.match(/(\d+)\s*(results?|jobs?|positions?|openings?)/i);
       const resultCount = resultMatch ? resultMatch[0] : null;
 
+      // 페이지네이션 타입 감지
+      const paginationType: {
+        type: 'button' | 'load-more' | 'infinite-scroll' | 'url-param' | 'none' | 'unknown';
+        nextSelector?: string;
+        loadMoreSelector?: string;
+        currentPage?: number;
+        totalPages?: number;
+        urlPattern?: string;
+      } = { type: 'unknown' };
+
+      // 1. Load More 버튼 탐지
+      const loadMorePatterns = [
+        '[class*="load-more"]',
+        '[class*="loadmore"]',
+        '[class*="show-more"]',
+        '[class*="view-more"]',
+        'button:has-text("Load More")',
+        'button:has-text("더 보기")',
+        'button:has-text("View More")',
+        'button:has-text("Show More")',
+        'a:has-text("Load More")',
+        'a:has-text("더 보기")',
+      ];
+
+      for (const pattern of loadMorePatterns) {
+        try {
+          const el = document.querySelector(pattern);
+          if (el) {
+            paginationType.type = 'load-more';
+            paginationType.loadMoreSelector = pattern;
+            break;
+          }
+        } catch {
+          // :has-text 같은 비표준 셀렉터는 무시
+        }
+      }
+
+      // Load More 버튼 텍스트로 탐지
+      if (paginationType.type === 'unknown') {
+        const allButtons = Array.from(document.querySelectorAll('button, a.btn, [role="button"]'));
+        const loadMoreBtn = allButtons.find((btn) => {
+          const text = btn.textContent?.trim().toLowerCase() || '';
+          return (
+            text.includes('load more') ||
+            text.includes('더 보기') ||
+            text.includes('view more') ||
+            text.includes('show more') ||
+            text === 'more'
+          );
+        });
+        if (loadMoreBtn) {
+          paginationType.type = 'load-more';
+          const id = loadMoreBtn.id ? `#${loadMoreBtn.id}` : null;
+          const classes =
+            loadMoreBtn.className && typeof loadMoreBtn.className === 'string'
+              ? '.' + loadMoreBtn.className.split(' ').filter((c) => c).slice(0, 2).join('.')
+              : null;
+          paginationType.loadMoreSelector = id || classes || loadMoreBtn.tagName.toLowerCase();
+        }
+      }
+
+      // 2. Next 버튼 탐지 (숫자 페이지네이션)
+      if (paginationType.type === 'unknown') {
+        const nextPatterns = [
+          '[class*="next"]',
+          '[aria-label*="next"]',
+          '[aria-label*="Next"]',
+          'a:has-text("Next")',
+          'a:has-text("다음")',
+          'button:has-text("Next")',
+          'button:has-text("다음")',
+          '[class*="pagination"] a:last-child',
+          '[class*="pager"] a:last-child',
+        ];
+
+        for (const pattern of nextPatterns) {
+          try {
+            const el = document.querySelector(pattern);
+            if (el) {
+              const text = el.textContent?.trim().toLowerCase() || '';
+              const isDisabled = el.hasAttribute('disabled') || el.classList.contains('disabled');
+              if (!isDisabled && (text.includes('next') || text.includes('다음') || text === '>' || text === '›')) {
+                paginationType.type = 'button';
+                paginationType.nextSelector = pattern;
+                break;
+              }
+            }
+          } catch {
+            // 비표준 셀렉터 무시
+          }
+        }
+
+        // Next 버튼 텍스트로 탐지
+        if (paginationType.type === 'unknown') {
+          const allLinks = Array.from(document.querySelectorAll('a, button'));
+          const nextBtn = allLinks.find((link) => {
+            const text = link.textContent?.trim().toLowerCase() || '';
+            const isDisabled =
+              link.hasAttribute('disabled') || link.classList.contains('disabled');
+            return (
+              !isDisabled &&
+              (text === 'next' ||
+                text === '다음' ||
+                text === '>' ||
+                text === '›' ||
+                text === '>>' ||
+                text === '»')
+            );
+          });
+          if (nextBtn) {
+            paginationType.type = 'button';
+            const id = nextBtn.id ? `#${nextBtn.id}` : null;
+            const classes =
+              nextBtn.className && typeof nextBtn.className === 'string'
+                ? '.' + nextBtn.className.split(' ').filter((c) => c).slice(0, 2).join('.')
+                : null;
+            paginationType.nextSelector = id || classes || 'a';
+          }
+        }
+      }
+
+      // 3. URL 파라미터 페이지네이션 탐지
+      if (paginationType.type === 'unknown') {
+        const urlParams = new URLSearchParams(window.location.search);
+
+        // 일반적인 페이지네이션 파라미터 확인
+        const pageParams = ['page', 'p', 'pg', 'offset', 'start', 'from'];
+        for (const param of pageParams) {
+          const value = urlParams.get(param);
+          if (value !== null) {
+            paginationType.type = 'url-param';
+            paginationType.currentPage = parseInt(value, 10) || 0;
+            paginationType.urlPattern = `${param}=${value}`;
+            break;
+          }
+        }
+      }
+
+      // 4. 페이지네이션 요소는 있지만 타입 불명확
+      if (paginationType.type === 'unknown' && paginationEl) {
+        // 페이지 번호가 있는지 확인
+        const pageNumbers = paginationEl.querySelectorAll('a, button');
+        const hasNumbers = Array.from(pageNumbers).some((el) => /^\d+$/.test(el.textContent?.trim() || ''));
+        if (hasNumbers) {
+          paginationType.type = 'button';
+        }
+      }
+
+      // 5. 무한 스크롤 감지 (스크롤 가능한 높이가 뷰포트보다 훨씬 큼)
+      if (paginationType.type === 'unknown') {
+        const scrollHeight = document.documentElement.scrollHeight;
+        const viewportHeight = window.innerHeight;
+        if (scrollHeight > viewportHeight * 2) {
+          // 페이지네이션 요소가 없고 스크롤 가능하면 무한 스크롤 가능성
+          paginationType.type = 'infinite-scroll';
+        }
+      }
+
+      // 페이지네이션 요소도 없고 스크롤도 짧으면 단일 페이지
+      if (paginationType.type === 'unknown') {
+        paginationType.type = 'none';
+      }
+
       return {
         url: window.location.href,
         title: document.title,
@@ -299,6 +471,7 @@ export class ToolExecutor {
         jobLinks,
         visibleButtons: buttons,
         paginationInfo,
+        paginationType,
         filterInfo,
         hasModal,
         resultCount,

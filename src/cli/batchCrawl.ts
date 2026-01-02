@@ -87,7 +87,9 @@ function parseCsv(): CsvRow[] {
 
   // 첫 번째 행은 헤더이므로 건너뜀
   for (let i = 1; i < records.length; i++) {
-    const row = records[i];
+    const row = records[i] as string[] | undefined;
+    if (!row) continue;
+
     const company = row[0]?.trim() || currentCompany;
     const service = row[1]?.trim() || '';
     const url = row[2]?.trim() || '';

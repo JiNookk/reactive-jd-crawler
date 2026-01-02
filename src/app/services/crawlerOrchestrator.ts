@@ -76,9 +76,15 @@ export class CrawlerOrchestrator {
         const canExtract = await this.extractor.tryExtract(page, structure.selectors);
 
         if (!canExtract) {
-          console.log(`[Cache] 셀렉터 추출 실패, 재분석 필요`);
+          console.log(`[Cache] 셀렉터 추출 실패`);
+          // 실패 기록 및 자동 무효화 확인
+          const invalidated = this.cache.recordFailure(cacheKey);
+          if (invalidated) {
+            console.log(`[Cache] 연속 실패로 캐시 무효화, 재분석 필요`);
+          } else {
+            console.log(`[Cache] 실패 기록됨, 재분석 필요`);
+          }
           structure = null;
-          this.cache.delete(cacheKey);
         }
       }
 
