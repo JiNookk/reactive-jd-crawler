@@ -12,6 +12,12 @@
     },
     "analyzedAt": "2025-12-08T09:53:25.925Z",
     "expiresAt": "2025-12-15T09:53:25.925Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".mat-paginator-navigation-next:not(.mat-button-disabled)"
@@ -30,6 +36,12 @@
     },
     "analyzedAt": "2025-12-08T09:55:03.116Z",
     "expiresAt": "2025-12-15T09:55:03.116Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "none"
     }
@@ -47,6 +59,12 @@
     },
     "analyzedAt": "2025-12-08T09:55:22.448Z",
     "expiresAt": "2025-12-15T09:55:22.448Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".next-pagination .next-next:not([disabled])"
@@ -65,6 +83,12 @@
     },
     "analyzedAt": "2025-12-08T09:56:00.317Z",
     "expiresAt": "2025-12-15T09:56:00.317Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".next-pagination-item.next-next:not([disabled])"
@@ -87,7 +111,13 @@
       "reqId": "#header-req_id"
     },
     "analyzedAt": "2025-12-09T00:26:31.894Z",
-    "expiresAt": "2025-12-16T00:26:31.894Z"
+    "expiresAt": "2025-12-16T00:26:31.894Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    }
   },
   "semiconductor.samsung.com/about-us/careers/jobs": {
     "pageType": "list",
@@ -102,6 +132,12 @@
     },
     "analyzedAt": "2025-12-11T00:14:17.839Z",
     "expiresAt": "2025-12-18T00:14:17.839Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".btn-more"
@@ -120,6 +156,12 @@
     },
     "analyzedAt": "2025-12-11T00:15:08.558Z",
     "expiresAt": "2025-12-18T00:15:08.558Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": "button.pagination__next[aria-disabled='false']"
@@ -138,6 +180,12 @@
     },
     "analyzedAt": "2025-12-11T00:15:20.634Z",
     "expiresAt": "2025-12-18T00:15:20.634Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "none"
     }
@@ -155,6 +203,12 @@
     },
     "analyzedAt": "2025-12-11T00:15:31.832Z",
     "expiresAt": "2025-12-18T00:15:31.832Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".show-more-positions"
@@ -173,6 +227,12 @@
     },
     "analyzedAt": "2025-12-11T00:17:22.374Z",
     "expiresAt": "2025-12-18T00:17:22.374Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".pagination-module_pagination-next__OHCf9"
@@ -190,6 +250,12 @@
     },
     "analyzedAt": "2025-12-11T00:18:37.159Z",
     "expiresAt": "2025-12-18T00:18:37.159Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": ".show-more-positions"
@@ -209,6 +275,12 @@
     },
     "analyzedAt": "2025-12-11T00:19:54.662Z",
     "expiresAt": "2025-12-18T00:19:54.662Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "url-param",
       "paramName": "page"
@@ -227,6 +299,12 @@
     },
     "analyzedAt": "2025-12-11T00:20:14.690Z",
     "expiresAt": "2025-12-18T00:20:14.690Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "infinite-scroll"
     }
@@ -244,9 +322,90 @@
     },
     "analyzedAt": "2025-12-11T00:27:50.714Z",
     "expiresAt": "2025-12-18T00:27:50.714Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
     "pagination": {
       "type": "button",
       "nextSelector": "nav[aria-label='pagination'] button[aria-label*='next' i]"
+    }
+  },
+  "www.wanted.co.kr/wdlist/518": {
+    "pageType": "list",
+    "urlPattern": "/wdlist/:id",
+    "selectors": {
+      "jobList": "ul[data-cy='job-list']",
+      "jobItem": "li.Card_Card__aaatv",
+      "title": ".JobCard_JobCard__body__position__NLhOu",
+      "location": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__location__4_w0l",
+      "department": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__company__ByVLu",
+      "detailLink": "a[href^='/wd/']"
+    },
+    "analyzedAt": "2026-01-02T13:14:17.021Z",
+    "expiresAt": "2026-01-09T13:14:17.021Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 1,
+      "lastHitAt": "2026-01-02T13:20:40.150Z",
+      "failCount": 0
+    },
+    "pagination": {
+      "type": "infinite-scroll"
+    }
+  },
+  "www.wanted.co.kr/wd/:id": {
+    "pageType": "detail",
+    "urlPattern": "/wd/:id",
+    "selectors": {
+      "title": "h1.wds-58fmok",
+      "location": ".JobHeader_JobHeader__Tools__Company__Info__b9P4Y:nth-of-type(1)",
+      "department": null,
+      "description": ".JobDescription_JobDescription__s2Keo .wds-h4ga6o",
+      "requirements": ".JobDescription_JobDescription__paragraph__87w8I:has(h3:contains('자격요건')) .wds-h4ga6o",
+      "responsibilities": ".JobDescription_JobDescription__paragraph__87w8I:has(h3:contains('주요업무')) .wds-h4ga6o",
+      "salary": null,
+      "employmentType": ".JobHeader_JobHeader__Tools__Company__Info__b9P4Y:nth-of-type(2)",
+      "postedDate": null,
+      "closingDate": ".JobDueTime_JobDueTime__yvhtg .wds-1u1yyy",
+      "company": ".JobHeader_JobHeader__Tools__Company__Link__NoBQI",
+      "companyInfo": ".CompanyInfo_CompanyInfo__name__sBeI6",
+      "workLocation": ".JobWorkPlace_JobWorkPlace__map__location__6pp2d .wds-1td1qmv",
+      "tags": ".CompanyTags_CompanyTags__list__XmzkW .wds-nkj4w6"
+    },
+    "analyzedAt": "2026-01-02T13:20:56.103Z",
+    "expiresAt": "2026-01-09T13:20:56.103Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    }
+  },
+  "www.wanted.co.kr/wdlist/518/872": {
+    "pageType": "list",
+    "urlPattern": "/wdlist/:categoryId/:roleId",
+    "selectors": {
+      "jobList": "ul[data-cy='job-list']",
+      "jobItem": "li.Card_Card__aaatv",
+      "title": ".JobCard_JobCard__body__position__NLhOu",
+      "company": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__company__ByVLu",
+      "location": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__location__4_w0l",
+      "detailLink": "a[href^='/wd/']",
+      "thumbnail": ".JobCard_JobCard__thumb__iOtFn img"
+    },
+    "analyzedAt": "2026-01-02T14:24:27.700Z",
+    "expiresAt": "2026-01-09T14:24:27.700Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
+    "pagination": {
+      "type": "infinite-scroll"
     }
   }
 }

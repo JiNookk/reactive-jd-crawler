@@ -5,9 +5,11 @@ import { chromium } from 'playwright';
 import { CrawlerOrchestrator } from '../app/services/crawlerOrchestrator.js';
 import { CrawlerAgent } from '../infra/agent/crawlerAgent.js';
 import { JsonWriter } from '../infra/output/jsonWriter.js';
+import { CsvWriter } from '../infra/output/csvWriter.js';
 import { CrawlResult } from '../app/services/crawlerOrchestrator.js';
 
 type CrawlMode = 'fast' | 'agent';
+type OutputFormat = 'json' | 'csv';
 
 interface CliArgs {
   url: string;
@@ -17,6 +19,7 @@ interface CliArgs {
   output: string;
   includeDetails: boolean;
   mode: CrawlMode;
+  format: OutputFormat;
 }
 
 function parseArgs(): CliArgs {
@@ -30,6 +33,7 @@ function parseArgs(): CliArgs {
     output: './output',
     includeDetails: false,
     mode: 'fast',
+    format: 'json',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -51,6 +55,11 @@ function parseArgs(): CliArgs {
       const modeValue = args[++i] || 'fast';
       if (modeValue === 'fast' || modeValue === 'agent') {
         result.mode = modeValue;
+      }
+    } else if (arg === '--format' || arg === '-f') {
+      const formatValue = args[++i] || 'json';
+      if (formatValue === 'json' || formatValue === 'csv') {
+        result.format = formatValue;
       }
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
@@ -78,6 +87,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   -m, --max-pages <n>     최대 페이지 수 (기본: 1, fast 모드만)
   -d, --details           상세 페이지도 크롤링 (JD 전문 수집, fast 모드만)
   --mode <mode>           크롤링 모드: fast(기본) | agent(ReAct 패턴)
+  -f, --format <format>   출력 형식: json(기본) | csv
   -o, --output <dir>      출력 디렉토리 (기본: ./output)
   --no-headless           브라우저 UI 표시
   -h, --help              도움말 표시
@@ -90,6 +100,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   pnpm crawl --url "https://jobs.booking.com/booking/jobs" --company "Booking.com"
   pnpm crawl -u "https://careers.tencent.com/en-us/search.html" -c "Tencent" -m 3
   pnpm crawl --url "https://example.com/jobs" --company "Example" --mode agent
+  pnpm crawl -u "https://example.com/jobs" -c "Example" -f csv  # CSV로 출력
 
 환경 변수:
   ANTHROPIC_API_KEY       Claude API 키 (필수)
@@ -125,6 +136,7 @@ async function main(): Promise<void> {
 모드: ${args.mode}
 ${args.mode === 'fast' ? `최대 페이지: ${args.maxPages}` : ''}
 ${args.mode === 'fast' ? `상세 페이지: ${args.includeDetails ? '예' : '아니오'}` : ''}
+출력 형식: ${args.format.toUpperCase()}
 Headless: ${args.headless}
 출력 디렉토리: ${args.output}
 `);
@@ -174,21 +186,24 @@ Headless: ${args.headless}
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-    // 결과 저장
-    const writer = new JsonWriter(args.output);
-    const outputPath = await writer.write(result);
+    // 결과 저장 (기존 파일과 병합)
+    const writeResult = args.format === 'csv'
+      ? await new CsvWriter(args.output).writeWithStats(result)
+      : await new JsonWriter(args.output).writeWithStats(result);
 
     // 결과 출력
+    const totalDuplicates = result.duplicatesRemoved + writeResult.duplicatesRemoved;
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                      크롤링 완료                            ║
 ╚════════════════════════════════════════════════════════════╝
 
-수집된 직무 수: ${result.totalCount}
+수집된 직무 수: ${writeResult.totalJobs}
+신규 직무: ${writeResult.newJobs}
 ${args.mode === 'fast' ? `처리된 페이지: ${result.pagesProcessed}` : ''}
-${args.mode === 'fast' ? `제거된 중복: ${result.duplicatesRemoved}` : ''}
+제거된 중복: ${totalDuplicates}
 소요 시간: ${duration}초
-결과 파일: ${outputPath}
+결과 파일: ${writeResult.filePath}
 `);
 
     if (result.errors.length > 0) {

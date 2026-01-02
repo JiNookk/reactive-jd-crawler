@@ -126,7 +126,8 @@ export class CrawlerOrchestrator {
           options.maxPages - 1,
           seenJobKeys,
           options.retryCount ?? 2,
-          options.retryDelay ?? 1000
+          options.retryDelay ?? 1000,
+          jobs.length // 첫 페이지에서 추출한 아이템 수 (무한 스크롤 스킵용)
         );
 
         allJobs.push(...paginationResult.jobs);
@@ -170,7 +171,8 @@ export class CrawlerOrchestrator {
     maxPages: number,
     seenJobKeys: Set<string>,
     retryCount: number,
-    retryDelay: number
+    retryDelay: number,
+    initialItemCount: number = 0 // 첫 페이지에서 추출한 아이템 수
   ): Promise<{ jobs: JobPosting[]; pagesProcessed: number; duplicatesRemoved: number }> {
     const allJobs: JobPosting[] = [];
     const pagination = structure.pagination;
@@ -180,6 +182,13 @@ export class CrawlerOrchestrator {
     if (!pagination || pagination.type === 'none') {
       return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
     }
+
+    // 무한 스크롤용 jobItem 셀렉터
+    const jobItemSelector = structure.selectors.jobItem || undefined;
+    const isInfiniteScroll = pagination.type === 'infinite-scroll';
+
+    // 무한 스크롤: 이전까지 처리한 DOM 아이템 수 추적
+    let lastProcessedIndex = initialItemCount;
 
     for (let pageNum = 0; pageNum < maxPages; pageNum++) {
       const currentPageDisplay = pageNum + 2; // 첫 페이지가 1이므로 2부터 시작
@@ -194,15 +203,26 @@ export class CrawlerOrchestrator {
             await this.delay(retryDelay * attempt); // 지수 백오프
           }
 
-          const hasNextPage = await this.navigateToNextPage(page, pagination, currentPageDisplay);
+          const hasNextPage = await this.navigateToNextPage(page, pagination, currentPageDisplay, jobItemSelector);
 
           if (!hasNextPage) {
             console.log(`[Pagination] 더 이상 페이지 없음 (페이지 ${currentPageDisplay - 1}에서 종료)`);
             return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
           }
 
-          // 추가 데이터 추출
-          const jobs = await this.extractor.extractFromListPage(page, structure, company);
+          // 추가 데이터 추출 (무한 스크롤: 새로 로드된 아이템만 추출)
+          const startIndex = isInfiniteScroll ? lastProcessedIndex : 0;
+          const jobs = await this.extractor.extractFromListPage(page, structure, company, startIndex);
+
+          // 무한 스크롤: 다음 추출을 위해 현재 DOM 아이템 수 업데이트
+          if (isInfiniteScroll && jobItemSelector) {
+            const currentItemCount = await page.$$eval(
+              jobItemSelector,
+              (items: Element[]) => items.length
+            ).catch(() => lastProcessedIndex + jobs.length);
+            lastProcessedIndex = currentItemCount;
+          }
+
           let newJobsCount = 0;
 
           // 중복 제거하며 추가
@@ -218,7 +238,7 @@ export class CrawlerOrchestrator {
           }
 
           pagesProcessed++;
-          console.log(`[Pagination] 페이지 ${currentPageDisplay}: ${jobs.length}개 추출 (신규: ${newJobsCount}개, 중복: ${jobs.length - newJobsCount}개)`);
+          console.log(`[Pagination] 페이지 ${currentPageDisplay}: ${jobs.length}개 추출 (신규 추가: ${newJobsCount}개)`);
 
           // Rate limiting
           await this.delay(1000);
@@ -244,7 +264,8 @@ export class CrawlerOrchestrator {
   private async navigateToNextPage(
     page: any,
     pagination: NonNullable<PageStructure['pagination']>,
-    targetPage: number
+    targetPage: number,
+    jobItemSelector?: string
   ): Promise<boolean> {
     if (pagination.type === 'button' && pagination.nextSelector) {
       // 다음 버튼 클릭
@@ -265,8 +286,18 @@ export class CrawlerOrchestrator {
     }
 
     if (pagination.type === 'infinite-scroll') {
-      // 무한 스크롤
+      // 무한 스크롤 - 개선된 로직
       const scrollContainer = pagination.scrollContainer || 'body';
+
+      // 현재 아이템 개수 확인 (있는 경우)
+      let previousItemCount = 0;
+      if (jobItemSelector) {
+        previousItemCount = await page.$$eval(
+          jobItemSelector,
+          (items: Element[]) => items.length
+        ).catch(() => 0);
+      }
+
       const previousHeight = await page.evaluate(
         (selector: string) => {
           const el = selector === 'body' ? document.body : document.querySelector(selector);
@@ -275,20 +306,51 @@ export class CrawlerOrchestrator {
         scrollContainer
       );
 
+      // 여러 스크롤 방식 시도
       await page.evaluate(
         (selector: string) => {
+          // 방법 1: 컨테이너 스크롤
           const el = selector === 'body' ? document.body : document.querySelector(selector);
-          if (el) {
+          if (el && el !== document.body) {
             el.scrollTo(0, el.scrollHeight);
-          } else {
-            window.scrollTo(0, document.body.scrollHeight);
+          }
+          // 방법 2: window 스크롤 (항상 실행)
+          window.scrollTo(0, document.body.scrollHeight);
+          // 방법 3: 마지막 요소로 스크롤
+          const lastItem = document.querySelector('[class*="Card"]:last-child, [class*="job"]:last-child, li:last-child');
+          if (lastItem) {
+            lastItem.scrollIntoView({ behavior: 'instant', block: 'end' });
           }
         },
         scrollContainer
       );
 
-      await page.waitForTimeout(2000);
+      // 대기 시간 증가 (3초) + 네트워크 안정화 대기
+      await page.waitForTimeout(3000);
 
+      // 추가 로딩 대기 (네트워크 idle 체크)
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 5000 });
+      } catch {
+        // 타임아웃 무시 - 이미 idle 상태이거나 오래 걸리는 경우
+      }
+
+      // 새 아이템 개수 확인
+      let newItemCount = 0;
+      if (jobItemSelector) {
+        newItemCount = await page.$$eval(
+          jobItemSelector,
+          (items: Element[]) => items.length
+        ).catch(() => 0);
+
+        // 아이템이 증가했으면 성공
+        if (newItemCount > previousItemCount) {
+          console.log(`[Scroll] 아이템 증가: ${previousItemCount} → ${newItemCount}`);
+          return true;
+        }
+      }
+
+      // 높이 비교 (fallback)
       const newHeight = await page.evaluate(
         (selector: string) => {
           const el = selector === 'body' ? document.body : document.querySelector(selector);
@@ -297,7 +359,14 @@ export class CrawlerOrchestrator {
         scrollContainer
       );
 
-      return newHeight > previousHeight;
+      if (newHeight > previousHeight) {
+        console.log(`[Scroll] 높이 증가: ${previousHeight} → ${newHeight}`);
+        return true;
+      }
+
+      // 둘 다 변화 없으면 종료
+      console.log(`[Scroll] 변화 없음 (아이템: ${previousItemCount}, 높이: ${previousHeight})`);
+      return false;
     }
 
     if (pagination.type === 'url-param' && pagination.paramName) {

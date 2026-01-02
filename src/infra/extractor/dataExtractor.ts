@@ -21,10 +21,12 @@ export interface ExtractedJobData {
 
 export class DataExtractor {
   // 목록 페이지에서 직무 데이터 추출
+  // startIndex: 무한 스크롤에서 이미 추출한 아이템을 스킵하기 위한 시작 인덱스
   async extractFromListPage(
     page: Page,
     structure: PageStructure,
-    company: string
+    company: string,
+    startIndex: number = 0
   ): Promise<JobPosting[]> {
     if (structure.pageType !== 'list') {
       throw new Error('목록 페이지 구조가 아닙니다');
@@ -37,7 +39,8 @@ export class DataExtractor {
     // 직무 항목들 찾기
     const jobItems = await page.$$(selectors.jobItem);
 
-    for (let i = 0; i < jobItems.length; i++) {
+    // startIndex 이후의 아이템만 처리 (무한 스크롤 최적화)
+    for (let i = startIndex; i < jobItems.length; i++) {
       const item = jobItems[i];
       if (!item) continue;
 

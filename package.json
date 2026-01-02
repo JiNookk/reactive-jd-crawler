@@ -14,7 +14,8 @@
     "test:run": "vitest run",
     "crawl": "tsx src/cli/index.ts",
     "batch": "tsx src/cli/batchCrawl.ts",
-    "cache:stats": "tsx src/cli/cacheStats.ts"
+    "cache:stats": "tsx src/cli/cacheStats.ts",
+    "blind": "tsx src/cli/blind.ts"
   },
   "keywords": [
     "crawler",
@@ -36,6 +37,8 @@
     "csv-parse": "^6.1.0",
     "dotenv": "^17.2.3",
     "playwright": "^1.40.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "uuid": "^13.0.0"
   },
   "engines": {
