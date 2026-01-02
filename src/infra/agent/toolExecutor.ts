@@ -1,0 +1,394 @@
+// 도구 실행기 - Playwright 페이지에서 도구 실행
+import { Page } from 'playwright';
+import {
+  ToolResult,
+  NavigateInput,
+  ClickInput,
+  ScrollInput,
+  InputTextInput,
+  WaitInput,
+  ExtractJobsInput,
+  ExtractJobDetailInput,
+  DoneInput,
+} from './tools.js';
+
+export interface ExtractedJob {
+  title: string;
+  location?: string;
+  department?: string;
+  detailUrl?: string;
+}
+
+export interface PageInfo {
+  url: string;
+  title: string;
+  // 셀렉터 후보들 (Agent가 어떤 셀렉터를 시도할지 결정하는 데 사용)
+  selectorCandidates: { selector: string; count: number; sample: string }[];
+  // 직무 관련 링크들 (Engineer, Manager 등 직함이 포함된 링크)
+  jobLinks: { text: string; href: string; parentClass: string }[];
+  // 버튼들
+  visibleButtons: { text: string; selector: string; tagName: string }[];
+  // 페이지네이션 정보
+  paginationInfo: string | null;
+  // 필터/드롭다운 정보
+  filterInfo: { text: string; tagName: string; className: string }[];
+  // 모달 여부
+  hasModal: boolean;
+  // 결과 수 표시 (예: "123 jobs")
+  resultCount: string | null;
+}
+
+export class ToolExecutor {
+  constructor(
+    private page: Page,
+    private company: string
+  ) {}
+
+  async execute(toolName: string, input: unknown): Promise<ToolResult> {
+    try {
+      switch (toolName) {
+        case 'navigate':
+          return await this.navigate(input as NavigateInput);
+        case 'click':
+          return await this.click(input as ClickInput);
+        case 'scroll':
+          return await this.scroll(input as ScrollInput);
+        case 'input_text':
+          return await this.inputText(input as InputTextInput);
+        case 'wait':
+          return await this.wait(input as WaitInput);
+        case 'get_page_info':
+          return await this.getPageInfo();
+        case 'extract_jobs':
+          return await this.extractJobs(input as ExtractJobsInput);
+        case 'extract_job_detail':
+          return await this.extractJobDetail(input as ExtractJobDetailInput);
+        case 'done':
+          return this.done(input as DoneInput);
+        default:
+          return { success: false, error: `알 수 없는 도구: ${toolName}` };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async navigate(input: NavigateInput): Promise<ToolResult> {
+    const { url } = input;
+
+    try {
+      await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+      await this.page.waitForTimeout(2000); // 페이지 로드 후 안정화 대기
+
+      return {
+        success: true,
+        data: {
+          message: `${url}로 이동 완료`,
+          currentUrl: this.page.url(),
+        },
+      };
+    } catch {
+      return {
+        success: false,
+        error: `페이지 이동 실패: ${url}`,
+      };
+    }
+  }
+
+  private async click(input: ClickInput): Promise<ToolResult> {
+    const { selector } = input;
+
+    try {
+      // 요소가 존재하고 보이는지 확인
+      await this.page.waitForSelector(selector, { timeout: 5000, state: 'visible' });
+      await this.page.click(selector);
+      await this.page.waitForTimeout(1500); // 클릭 후 페이지 변화 대기
+
+      return {
+        success: true,
+        data: { message: `${selector} 클릭 완료` },
+      };
+    } catch {
+      return {
+        success: false,
+        error: `요소를 찾을 수 없거나 클릭할 수 없음: ${selector}`,
+      };
+    }
+  }
+
+  private async scroll(input: ScrollInput): Promise<ToolResult> {
+    const direction = input.direction || 'down';
+    const amount = input.amount || 500;
+
+    const scrollAmount = direction === 'down' ? amount : -amount;
+
+    await this.page.evaluate((pixels) => {
+      window.scrollBy(0, pixels);
+    }, scrollAmount);
+
+    await this.page.waitForTimeout(1000); // 스크롤 후 로딩 대기
+
+    // 현재 스크롤 위치 반환
+    const scrollPosition = await this.page.evaluate(() => ({
+      y: window.scrollY,
+      maxY: document.documentElement.scrollHeight - window.innerHeight,
+    }));
+
+    return {
+      success: true,
+      data: {
+        message: `${direction}으로 ${amount}px 스크롤`,
+        currentPosition: scrollPosition.y,
+        maxPosition: scrollPosition.maxY,
+        atBottom: scrollPosition.y >= scrollPosition.maxY - 10,
+      },
+    };
+  }
+
+  private async inputText(input: InputTextInput): Promise<ToolResult> {
+    const { selector, text } = input;
+
+    try {
+      await this.page.waitForSelector(selector, { timeout: 5000 });
+      await this.page.fill(selector, text);
+      await this.page.waitForTimeout(500);
+
+      return {
+        success: true,
+        data: { message: `${selector}에 "${text}" 입력 완료` },
+      };
+    } catch {
+      return {
+        success: false,
+        error: `입력 필드를 찾을 수 없음: ${selector}`,
+      };
+    }
+  }
+
+  private async wait(input: WaitInput): Promise<ToolResult> {
+    const ms = input.ms || 1000;
+    await this.page.waitForTimeout(ms);
+
+    return {
+      success: true,
+      data: { message: `${ms}ms 대기 완료` },
+    };
+  }
+
+  private async getPageInfo(): Promise<ToolResult> {
+    const info = await this.page.evaluate(() => {
+      // 직무 관련 요소들의 셀렉터 후보 수집
+      const selectorCandidates: { selector: string; count: number; sample: string }[] = [];
+
+      const patterns = [
+        '[class*="job"]',
+        '[class*="career"]',
+        '[class*="position"]',
+        '[class*="opening"]',
+        '[class*="listing"]',
+        '[class*="vacancy"]',
+        '[class*="card"]',
+        '[class*="item"]',
+        '[class*="result"]',
+        'li',
+        'article',
+        '[role="listitem"]',
+      ];
+
+      for (const pattern of patterns) {
+        const elements = document.querySelectorAll(pattern);
+        if (elements.length > 0 && elements.length < 500) {
+          const firstEl = elements[0];
+          if (firstEl) {
+            const text = firstEl.textContent?.trim().substring(0, 100) || '';
+            // 직무 관련 키워드가 포함된 것만
+            if (text.length > 10) {
+              selectorCandidates.push({
+                selector: pattern,
+                count: elements.length,
+                sample: text,
+              });
+            }
+          }
+        }
+      }
+
+      // 직무 관련 링크들 (Engineer, Manager 등 직함 포함)
+      const jobLinks = Array.from(document.querySelectorAll('a'))
+        .filter((a) => {
+          const text = a.textContent?.trim().toLowerCase() || '';
+          const href = a.href || '';
+          return (
+            text.match(/engineer|manager|designer|analyst|developer|architect|scientist|lead|director|specialist/i) ||
+            href.includes('job') ||
+            href.includes('career') ||
+            href.includes('position')
+          );
+        })
+        .slice(0, 15)
+        .map((a) => ({
+          text: a.textContent?.trim().substring(0, 80) || '',
+          href: a.href,
+          parentClass: a.parentElement?.className || '',
+        }));
+
+      // 버튼들 수집 (더 정확한 셀렉터)
+      const buttons = Array.from(
+        document.querySelectorAll('button, [role="button"], a.btn, .button, [class*="btn"]')
+      )
+        .filter((el) => {
+          const text = el.textContent?.trim();
+          const style = window.getComputedStyle(el);
+          return text && text.length < 50 && style.display !== 'none';
+        })
+        .slice(0, 15)
+        .map((el) => {
+          // 더 정확한 셀렉터 생성
+          let selector = '';
+          if (el.id) {
+            selector = `#${el.id}`;
+          } else if (el.className && typeof el.className === 'string') {
+            const classes = el.className.split(' ').filter(c => c.length > 0).slice(0, 2).join('.');
+            selector = classes ? `.${classes}` : el.tagName.toLowerCase();
+          } else {
+            selector = el.tagName.toLowerCase();
+          }
+          return {
+            text: el.textContent?.trim() || '',
+            selector,
+            tagName: el.tagName,
+          };
+        });
+
+      // 페이지네이션 정보
+      const paginationEl = document.querySelector(
+        '[class*="pagination"], [class*="pager"], [class*="page-nav"], [class*="page-number"]'
+      );
+      const paginationInfo = paginationEl ? paginationEl.textContent?.trim().substring(0, 100) || null : null;
+
+      // 필터/드롭다운 정보
+      const filterEls = document.querySelectorAll(
+        '[class*="filter"], select, [class*="dropdown"], [class*="select"]'
+      );
+      const filterInfo = Array.from(filterEls)
+        .slice(0, 5)
+        .map((el) => ({
+          text: el.textContent?.trim().substring(0, 50) || '',
+          tagName: el.tagName,
+          className: (el as HTMLElement).className || '',
+        }));
+
+      // 모달 확인
+      const hasModal = !!(
+        document.querySelector('[class*="modal"]:not([style*="display: none"])') ||
+        document.querySelector('[role="dialog"]')
+      );
+
+      // 결과 수 표시 찾기
+      const bodyText = document.body.innerText;
+      const resultMatch = bodyText.match(/(\d+)\s*(results?|jobs?|positions?|openings?)/i);
+      const resultCount = resultMatch ? resultMatch[0] : null;
+
+      return {
+        url: window.location.href,
+        title: document.title,
+        selectorCandidates,
+        jobLinks,
+        visibleButtons: buttons,
+        paginationInfo,
+        filterInfo,
+        hasModal,
+        resultCount,
+      };
+    });
+
+    return {
+      success: true,
+      data: info as PageInfo,
+    };
+  }
+
+  private async extractJobs(input: ExtractJobsInput): Promise<ToolResult> {
+    const { jobCardSelector } = input;
+
+    const jobs = await this.page.evaluate((selector) => {
+      const cards = document.querySelectorAll(selector);
+      return Array.from(cards).map((card) => {
+        // 제목 찾기
+        const titleEl =
+          card.querySelector('h1, h2, h3, h4, [class*="title"], a') ||
+          card.querySelector('strong, b');
+        const title = titleEl?.textContent?.trim() || '';
+
+        // 위치 찾기
+        const locationEl = card.querySelector('[class*="location"], [class*="place"]');
+        const location = locationEl?.textContent?.trim();
+
+        // 부서 찾기
+        const deptEl = card.querySelector(
+          '[class*="department"], [class*="team"], [class*="category"]'
+        );
+        const department = deptEl?.textContent?.trim();
+
+        // 상세 링크 찾기
+        const linkEl = card.querySelector('a[href]') as HTMLAnchorElement | null;
+        const detailUrl = linkEl?.href;
+
+        return { title, location, department, detailUrl };
+      });
+    }, jobCardSelector);
+
+    // 제목이 있는 것만 필터링
+    const validJobs = jobs.filter((j) => j.title && j.title.length > 0);
+
+    return {
+      success: true,
+      data: {
+        count: validJobs.length,
+        jobs: validJobs as ExtractedJob[],
+      },
+    };
+  }
+
+  private async extractJobDetail(input: ExtractJobDetailInput): Promise<ToolResult> {
+    const containerSelector = input.containerSelector || 'body';
+
+    const detail = await this.page.evaluate((selector) => {
+      const container = document.querySelector(selector) || document.body;
+      const text = (container as HTMLElement).innerText || container.textContent || '';
+
+      // 제목 추출
+      const titleEl = container.querySelector('h1, h2, [class*="title"]');
+      const title = titleEl?.textContent?.trim() || '';
+
+      // 위치 추출
+      const locationMatch = text.match(
+        /location[:\s]+([^\n]+)/i
+      );
+      const location = locationMatch?.[1]?.trim();
+
+      // 설명 추출 (전체 텍스트의 일부)
+      const description = text.substring(0, 2000);
+
+      return { title, location, description };
+    }, containerSelector);
+
+    return {
+      success: true,
+      data: detail,
+    };
+  }
+
+  private done(input: DoneInput): ToolResult {
+    return {
+      success: true,
+      data: {
+        completed: true,
+        reason: input.reason,
+      },
+    };
+  }
+}

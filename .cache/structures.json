@@ -88,5 +88,165 @@
     },
     "analyzedAt": "2025-12-09T00:26:31.894Z",
     "expiresAt": "2025-12-16T00:26:31.894Z"
+  },
+  "semiconductor.samsung.com/about-us/careers/jobs": {
+    "pageType": "list",
+    "urlPattern": "/about-us/careers/jobs/",
+    "selectors": {
+      "jobList": ".CO15_rawcode_job_grid-list",
+      "jobItem": ".CO15_rawcode_job_grid-list_item",
+      "title": ".CO15_rawcode_job_grid-list_item-title",
+      "location": ".CO15_rawcode_job_grid-list_item-location",
+      "department": ".CO15_rawcode_job_grid-list_item-category",
+      "detailLink": ".CO15_rawcode_job_grid-list_item-link"
+    },
+    "analyzedAt": "2025-12-11T00:14:17.839Z",
+    "expiresAt": "2025-12-18T00:14:17.839Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".btn-more"
+    }
+  },
+  "job-boards.greenhouse.io/samsungsemiconductor": {
+    "pageType": "list",
+    "urlPattern": "/samsungsemiconductor",
+    "selectors": {
+      "jobList": ".job-posts",
+      "jobItem": "tr.job-post",
+      "title": "p.body.body--medium",
+      "location": "p.body.body__secondary.body--metadata",
+      "department": "h3.section-header.font-primary",
+      "detailLink": "a"
+    },
+    "analyzedAt": "2025-12-11T00:15:08.558Z",
+    "expiresAt": "2025-12-18T00:15:08.558Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": "button.pagination__next[aria-disabled='false']"
+    }
+  },
+  "job-boards.greenhouse.io/skhynixamerica": {
+    "pageType": "list",
+    "urlPattern": "/skhynixamerica",
+    "selectors": {
+      "jobList": ".job-posts",
+      "jobItem": "tr.job-post",
+      "title": "p.body--medium",
+      "location": "p.body__secondary.body--metadata",
+      "department": "h3.section-header.font-primary",
+      "detailLink": "a"
+    },
+    "analyzedAt": "2025-12-11T00:15:20.634Z",
+    "expiresAt": "2025-12-18T00:15:20.634Z",
+    "pagination": {
+      "type": "none"
+    }
+  },
+  "careers.qualcomm.com/careers": {
+    "pageType": "list",
+    "urlPattern": "/careers",
+    "selectors": {
+      "jobList": ".position-sidebar-scroll-handler",
+      "jobItem": ".job-card-container",
+      "title": ".job-card-title",
+      "location": ".info-tag .field-label",
+      "department": ".info-tag .field-label:nth-of-type(2)",
+      "detailLink": ".info-container > div[role='link']"
+    },
+    "analyzedAt": "2025-12-11T00:15:31.832Z",
+    "expiresAt": "2025-12-18T00:15:31.832Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".show-more-positions"
+    }
+  },
+  "nvidia.eightfold.ai/careers": {
+    "pageType": "list",
+    "urlPattern": "/careers?start=:start&pid=:pid&sort_by=:sort_by",
+    "selectors": {
+      "jobList": ".cardlist-8kM5_",
+      "jobItem": ".cardContainer-GcY1a",
+      "title": ".title-1aNJK",
+      "location": ".fieldsContainer-3Jtts:nth-of-type(2) .fieldValue-3kEar",
+      "department": ".fieldsContainer-3Jtts:nth-of-type(1) .fieldValue-3kEar",
+      "detailLink": "a.card-F1ebU"
+    },
+    "analyzedAt": "2025-12-11T00:17:22.374Z",
+    "expiresAt": "2025-12-18T00:17:22.374Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".pagination-module_pagination-next__OHCf9"
+    }
+  },
+  "stmicroelectronics.eightfold.ai/careers": {
+    "pageType": "list",
+    "urlPattern": "/careers",
+    "selectors": {
+      "jobList": ".position-sidebar-scroll-handler",
+      "jobItem": ".card.position-card",
+      "title": ".position-title",
+      "location": ".position-location",
+      "detailLink": ".card.position-card"
+    },
+    "analyzedAt": "2025-12-11T00:18:37.159Z",
+    "expiresAt": "2025-12-18T00:18:37.159Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": ".show-more-positions"
+    }
+  },
+  "careers.mediatek.com/eREC/JobSearch": {
+    "pageType": "list",
+    "urlPattern": "/eREC/JobSearch?sortBy=&order=&page=:page&searchKey=&category=&workExp=&branch=&program=",
+    "selectors": {
+      "jobList": ".el-table__body tbody",
+      "jobItem": "tr.el-table__row",
+      "title": "td.el-table_1_column_2 .cell a",
+      "location": "td.el-table_1_column_3 .cell a",
+      "department": "td.el-table_1_column_4 .cell a",
+      "experience": "td.el-table_1_column_5 .cell a",
+      "detailLink": "td.el-table_1_column_2 .cell a"
+    },
+    "analyzedAt": "2025-12-11T00:19:54.662Z",
+    "expiresAt": "2025-12-18T00:19:54.662Z",
+    "pagination": {
+      "type": "url-param",
+      "paramName": "page"
+    }
+  },
+  "careers.ti.com/en/sites/CX/jobs": {
+    "pageType": "list",
+    "urlPattern": "/en/sites/CX/jobs",
+    "selectors": {
+      "jobList": ".jobs-list__list",
+      "jobItem": "li[data-qa='searchResultItem']",
+      "title": ".job-tile__title",
+      "location": ".job-list-item__job-info-label--locations + .job-list-item__job-info-value-container .job-list-item__job-info-value",
+      "department": ".job-list-item__job-info-label--categories + .job-list-item__job-info-value-container .job-list-item__job-info-value",
+      "detailLink": ".job-list-item__link"
+    },
+    "analyzedAt": "2025-12-11T00:20:14.690Z",
+    "expiresAt": "2025-12-18T00:20:14.690Z",
+    "pagination": {
+      "type": "infinite-scroll"
+    }
+  },
+  "sec.wd3.myworkdayjobs.com/Samsung_Careers": {
+    "pageType": "list",
+    "urlPattern": "/Samsung_Careers",
+    "selectors": {
+      "jobList": "section[data-automation-id='jobResults'] ul[role='list']",
+      "jobItem": "li.css-1q2dra3",
+      "title": "h3 a[data-automation-id='jobTitle']",
+      "location": "div[data-automation-id='locations'] dd.css-129m7dg",
+      "department": null,
+      "detailLink": "h3 a[data-automation-id='jobTitle']"
+    },
+    "analyzedAt": "2025-12-11T00:27:50.714Z",
+    "expiresAt": "2025-12-18T00:27:50.714Z",
+    "pagination": {
+      "type": "button",
+      "nextSelector": "nav[aria-label='pagination'] button[aria-label*='next' i]"
+    }
   }
 }

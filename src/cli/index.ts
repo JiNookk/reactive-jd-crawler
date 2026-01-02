@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // CLI 진입점
 import 'dotenv/config';
+import { chromium } from 'playwright';
 import { CrawlerOrchestrator } from '../app/services/crawlerOrchestrator.js';
+import { CrawlerAgent } from '../infra/agent/crawlerAgent.js';
 import { JsonWriter } from '../infra/output/jsonWriter.js';
+import { CrawlResult } from '../app/services/crawlerOrchestrator.js';
+
+type CrawlMode = 'fast' | 'agent';
 
 interface CliArgs {
   url: string;
@@ -11,6 +16,7 @@ interface CliArgs {
   headless: boolean;
   output: string;
   includeDetails: boolean;
+  mode: CrawlMode;
 }
 
 function parseArgs(): CliArgs {
@@ -23,6 +29,7 @@ function parseArgs(): CliArgs {
     headless: true,
     output: './output',
     includeDetails: false,
+    mode: 'fast',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -40,6 +47,11 @@ function parseArgs(): CliArgs {
       result.includeDetails = true;
     } else if (arg === '--output' || arg === '-o') {
       result.output = args[++i] || './output';
+    } else if (arg === '--mode') {
+      const modeValue = args[++i] || 'fast';
+      if (modeValue === 'fast' || modeValue === 'agent') {
+        result.mode = modeValue;
+      }
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -63,15 +75,21 @@ JD Crawler - 범용 채용 사이트 크롤러
 옵션:
   -u, --url <url>         크롤링할 채용 페이지 URL (필수)
   -c, --company <company> 회사명 (필수)
-  -m, --max-pages <n>     최대 페이지 수 (기본: 1)
-  -d, --details           상세 페이지도 크롤링 (JD 전문 수집)
+  -m, --max-pages <n>     최대 페이지 수 (기본: 1, fast 모드만)
+  -d, --details           상세 페이지도 크롤링 (JD 전문 수집, fast 모드만)
+  --mode <mode>           크롤링 모드: fast(기본) | agent(ReAct 패턴)
   -o, --output <dir>      출력 디렉토리 (기본: ./output)
   --no-headless           브라우저 UI 표시
   -h, --help              도움말 표시
 
+모드 설명:
+  fast   : 고정된 셀렉터 기반 빠른 크롤링 (저렴, 단순 사이트용)
+  agent  : LLM이 상황 판단하며 크롤링 (유연, SPA/복잡한 사이트용)
+
 예시:
   pnpm crawl --url "https://jobs.booking.com/booking/jobs" --company "Booking.com"
   pnpm crawl -u "https://careers.tencent.com/en-us/search.html" -c "Tencent" -m 3
+  pnpm crawl --url "https://example.com/jobs" --company "Example" --mode agent
 
 환경 변수:
   ANTHROPIC_API_KEY       Claude API 키 (필수)
@@ -104,27 +122,55 @@ async function main(): Promise<void> {
 
 대상 URL: ${args.url}
 회사명: ${args.company}
-최대 페이지: ${args.maxPages}
-상세 페이지: ${args.includeDetails ? '예' : '아니오'}
+모드: ${args.mode}
+${args.mode === 'fast' ? `최대 페이지: ${args.maxPages}` : ''}
+${args.mode === 'fast' ? `상세 페이지: ${args.includeDetails ? '예' : '아니오'}` : ''}
 Headless: ${args.headless}
 출력 디렉토리: ${args.output}
 `);
 
   try {
-    // 크롤러 초기화
-    const crawler = new CrawlerOrchestrator({
-      headless: args.headless,
-    });
-
-    // 크롤링 실행
-    console.log('크롤링 시작...\n');
     const startTime = Date.now();
+    let result: CrawlResult;
 
-    const result = await crawler.crawl(args.url, {
-      company: args.company,
-      maxPages: args.maxPages,
-      includeDetails: args.includeDetails,
-    });
+    if (args.mode === 'agent') {
+      // Agent 모드 (ReAct 패턴)
+      console.log('Agent 모드로 크롤링 시작...\n');
+
+      const browser = await chromium.launch({ headless: args.headless });
+      const page = await browser.newPage();
+
+      try {
+        const agent = new CrawlerAgent(page, args.company);
+        const jobs = await agent.run(args.url);
+
+        result = {
+          company: args.company,
+          sourceUrl: args.url,
+          jobs: jobs,
+          totalCount: jobs.length,
+          crawledAt: new Date().toISOString(),
+          errors: [],
+          pagesProcessed: 0, // Agent 모드에서는 페이지 개념이 다름
+          duplicatesRemoved: 0,
+        };
+      } finally {
+        await browser.close();
+      }
+    } else {
+      // Fast 모드 (기존 방식)
+      console.log('Fast 모드로 크롤링 시작...\n');
+
+      const crawler = new CrawlerOrchestrator({
+        headless: args.headless,
+      });
+
+      result = await crawler.crawl(args.url, {
+        company: args.company,
+        maxPages: args.maxPages,
+        includeDetails: args.includeDetails,
+      });
+    }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -139,8 +185,8 @@ Headless: ${args.headless}
 ╚════════════════════════════════════════════════════════════╝
 
 수집된 직무 수: ${result.totalCount}
-처리된 페이지: ${result.pagesProcessed}
-제거된 중복: ${result.duplicatesRemoved}
+${args.mode === 'fast' ? `처리된 페이지: ${result.pagesProcessed}` : ''}
+${args.mode === 'fast' ? `제거된 중복: ${result.duplicatesRemoved}` : ''}
 소요 시간: ${duration}초
 결과 파일: ${outputPath}
 `);
