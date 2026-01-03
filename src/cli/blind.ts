@@ -369,7 +369,7 @@ async function enrichJsonWithRatings(
 
   // 이미 조회된 회사들 추출 (기존 결과 복원)
   const ratingsMap = new Map<string, CompanyRatingSummary>(); // searchKey → rating
-  const notFoundCompanies: string[] = [];
+  const notFoundSet = new Set<string>(); // searchKey 기준 not found 회사
   const alreadyProcessed = new Set<string>();
 
   // 기존 companyRatings 섹션에서 복원
@@ -383,7 +383,7 @@ async function enrichJsonWithRatings(
     // 못 찾은 회사들
     for (const company of data.companyRatings.notFound || []) {
       const searchKey = getSearchKey(company);
-      notFoundCompanies.push(company);
+      notFoundSet.add(searchKey);
       alreadyProcessed.add(searchKey);
     }
   }
@@ -420,6 +420,7 @@ async function enrichJsonWithRatings(
     console.log(`[Enrich] ✅ 모든 회사가 이미 조회되었습니다.`);
     // CSV만 다시 생성
     if (exportCsv) {
+      const notFoundCompanies = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
       await saveEnrichedJson(filePath, data, ratingsMap, notFoundCompanies, companyList, exportCsv);
       console.log(`[Enrich] 📄 CSV 파일 갱신 완료`);
     }
@@ -435,6 +436,12 @@ async function enrichJsonWithRatings(
     for (let i = 0; i < pendingCompanies.length; i++) {
       const searchKey = pendingCompanies[i];
       if (!searchKey) continue;
+
+      // 메모리 캐시: 이미 이번 실행에서 조회한 회사는 건너뛰기
+      if (ratingsMap.has(searchKey) || notFoundSet.has(searchKey)) {
+        console.log(`\n[${i + 1}/${pendingCompanies.length}] ${companyMap.get(searchKey)} - 캐시 사용 (건너뜀)`);
+        continue;
+      }
 
       console.log(`\n[${i + 1}/${pendingCompanies.length}] ${companyMap.get(searchKey)} 조회 중...`);
 
@@ -453,11 +460,12 @@ async function enrichJsonWithRatings(
         });
         console.log(`  ✅ ${r.overallRating}/5 (${r.getRatingLevel()})`);
       } else {
-        notFoundCompanies.push(companyMap.get(searchKey) || searchKey);
+        notFoundSet.add(searchKey);
         console.log(`  ❌ ${result.error || '찾을 수 없음'}`);
       }
 
       // 스트리밍 저장: 각 회사 조회 후 즉시 파일에 저장
+      const notFoundCompanies = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
       await saveEnrichedJson(filePath, data, ratingsMap, notFoundCompanies, companyList, exportCsv);
       console.log(`  💾 저장 완료 (${ratingsMap.size}/${companyList.length})`);
 
@@ -498,13 +506,14 @@ async function enrichJsonWithRatings(
     .filter((v): v is number => v !== undefined);
 
   // 요약 출력
+  const notFoundList = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                    평점 추가 완료                            ║
 ╚════════════════════════════════════════════════════════════╝
 
 조회 성공: ${foundRatings.length}개
-조회 실패: ${notFoundCompanies.length}개
+조회 실패: ${notFoundList.length}개
 
 📊 평균 평점 요약:
    전체 평균: ${calcAverage(overallRatings) ?? 'N/A'}/5
@@ -520,9 +529,9 @@ async function enrichJsonWithRatings(
 ※ 스트리밍 저장: 각 회사 조회 후 즉시 저장되어 중간 크래시에도 데이터 유실 없음
 `);
 
-  if (notFoundCompanies.length > 0) {
+  if (notFoundList.length > 0) {
     console.log('조회 실패 목록:');
-    notFoundCompanies.forEach((c) => console.log(`  - ${c}`));
+    notFoundList.forEach((c: string) => console.log(`  - ${c}`));
   }
 }
 

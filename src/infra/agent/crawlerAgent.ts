@@ -1,4 +1,4 @@
-// ReAct 패턴 기반 크롤러 Agent
+// ReAct 패턴 기반 크롤러 Agent (Reflexion 패턴 적용)
 import Anthropic from '@anthropic-ai/sdk';
 import { Page } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,6 +7,11 @@ import * as path from 'path';
 import { agentTools } from './tools.js';
 import { ToolExecutor, ExtractedJob, PageInfo } from './toolExecutor.js';
 import { JobPosting } from '../../domain/jobPosting.domain.js';
+import {
+  ReflectionContext,
+  ReflectionResult,
+  ReflectionPromptBuilder,
+} from '../../domain/reflection.domain.js';
 
 // 로거 클래스 - 콘솔과 파일 동시 출력
 class AgentLogger {
@@ -454,14 +459,32 @@ URL: ${url}
           content: response.content,
         });
 
-        // 도구 결과 추가
+        // 도구 결과 추가 (실패 시 Reflexion 포함)
+        let toolResultContent = JSON.stringify(result);
+
+        if (!result.success && result.error) {
+          // Reflexion 패턴: 도구 실패 시 반성 수행
+          const reflection = await this.reflect(toolName, toolInput, result.error);
+
+          // 반성 결과를 도구 결과에 추가
+          toolResultContent = JSON.stringify({
+            ...result,
+            reflection: {
+              analysis: reflection.analysis,
+              suggestion: reflection.suggestion,
+              shouldRetry: reflection.shouldRetry,
+              alternativeAction: reflection.alternativeAction,
+            },
+          });
+        }
+
         messages.push({
           role: 'user',
           content: [
             {
               type: 'tool_result',
               tool_use_id: toolUseBlock.id,
-              content: JSON.stringify(result),
+              content: toolResultContent,
             },
           ],
         });
@@ -509,6 +532,90 @@ URL: ${url}
         department: job.department,
       })
     );
+  }
+
+  /**
+   * Reflexion 패턴: 도구 실행 실패 시 반성을 수행하여 대안 전략 도출
+   */
+  private async reflect(
+    toolName: string,
+    toolInput: unknown,
+    error: string
+  ): Promise<ReflectionResult> {
+    this.logger.log(`\n[🔍 Reflection] 실패 분석 시작...`);
+
+    // 반성 컨텍스트 생성
+    const context = ReflectionContext.create({
+      toolName,
+      toolInput,
+      error,
+      history: this.state.history.map((h) => ({
+        step: h.step,
+        toolName: h.toolName,
+        result: h.result,
+        thought: h.thought,
+        toolInput: h.toolInput,
+        observation: h.observation,
+      })),
+    });
+
+    // 반성 프롬프트 생성
+    const reflectionPrompt = ReflectionPromptBuilder.build(context);
+
+    try {
+      // LLM 호출하여 반성 수행
+      const response = await this.client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: `당신은 웹 크롤링 전문가입니다. 도구 실행 실패를 분석하고 대안 전략을 제시해주세요.
+반드시 JSON 형식으로만 응답하세요.`,
+        messages: [{ role: 'user', content: reflectionPrompt }],
+      });
+
+      // 응답 파싱
+      const textBlock = response.content.find(
+        (block): block is Anthropic.Messages.TextBlock => block.type === 'text'
+      );
+
+      if (!textBlock) {
+        throw new Error('반성 응답에 텍스트가 없습니다');
+      }
+
+      // JSON 추출 (코드블록 내부 또는 전체 텍스트)
+      let jsonStr = textBlock.text;
+      const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch && jsonMatch[1]) {
+        jsonStr = jsonMatch[1].trim();
+      }
+
+      const parsed = JSON.parse(jsonStr);
+
+      const result = ReflectionResult.create({
+        analysis: parsed.analysis || '분석 실패',
+        suggestion: parsed.suggestion || '기본 재시도',
+        shouldRetry: parsed.shouldRetry ?? true,
+        alternativeAction: parsed.alternativeAction,
+      });
+
+      this.logger.log(`[🔍 Reflection] 분석 완료`);
+      this.logger.log(`  - 원인: ${result.analysis}`);
+      this.logger.log(`  - 제안: ${result.suggestion}`);
+      this.logger.log(`  - 재시도: ${result.shouldRetry ? '예' : '아니오'}`);
+      if (result.alternativeAction) {
+        this.logger.log(`  - 대안 도구: ${result.alternativeAction.toolName}`);
+      }
+
+      return result;
+    } catch (parseError) {
+      this.logger.log(`[🔍 Reflection] 파싱 실패: ${parseError}`);
+
+      // 파싱 실패 시 기본 결과 반환
+      return ReflectionResult.create({
+        analysis: `${toolName} 도구 실행 실패: ${error}`,
+        suggestion: '다른 셀렉터나 방법을 시도하세요',
+        shouldRetry: true,
+      });
+    }
   }
 
   // 상태 반환 (디버깅용)
