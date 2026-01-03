@@ -7,6 +7,8 @@ import {
   ListPageSelectors,
   DetailPageSelectors,
   PaginationConfig,
+  CrawlStrategy,
+  ApiConfig,
 } from '../../domain/pageStructure.domain.js';
 
 export interface AnalysisResult {
@@ -14,6 +16,8 @@ export interface AnalysisResult {
   urlPattern: string;
   selectors: ListPageSelectors | DetailPageSelectors;
   pagination?: PaginationConfig;
+  strategy?: CrawlStrategy;
+  apiConfig?: ApiConfig;
 }
 
 const SYSTEM_PROMPT = `당신은 웹 페이지 HTML 구조를 분석하는 전문가입니다.
@@ -26,32 +30,69 @@ const LIST_PAGE_PROMPT = `이 HTML은 채용 사이트의 직무 목록 페이�
 
 1. pageType: "list" (고정)
 2. urlPattern: 현재 URL의 패턴 (동적 ID 부분은 :id로 표시)
-3. selectors:
+3. strategy: 데이터 추출 전략
+   - "dom": 현재 HTML에 채용공고 데이터가 이미 포함되어 있음 (기본값)
+   - "api": HTML에 데이터가 없거나 비어있고, JavaScript로 별도 API를 호출해서 데이터를 로드함
+
+   API 전략 판단 기준:
+   - 목록 영역이 비어있거나 로딩 스피너만 있음
+   - "Loading", "데이터를 불러오는 중" 같은 로딩 텍스트가 있음
+   - data-* 속성이나 JavaScript 변수에 API 엔드포인트 힌트가 있음
+   - 실제 채용공고 항목이 0개임
+
+4. apiConfig: (strategy가 "api"일 때만)
+   - endpoint: API 엔드포인트 경로 (HTML에서 찾을 수 있다면)
+   - method: "GET" 또는 "POST"
+
+5. selectors:
    - jobList: 직무 목록 전체를 감싸는 컨테이너 셀렉터 (필수)
    - jobItem: 개별 직무 항목 셀렉터 (필수)
    - title: 직무명 셀렉터 (jobItem 내부 기준)
    - location: 근무지 셀렉터
-   - department: 부서 셀렉터
+   - department: 부서/회사명 셀렉터
    - detailLink: 상세 페이지 링크 셀렉터
-4. pagination:
+
+6. pagination:
    - type: "button" | "infinite-scroll" | "url-param" | "none"
    - nextSelector: 다음 페이지 버튼 셀렉터 (button 타입일 때)
    - paramName: 페이지 파라미터명 (url-param 타입일 때)
 
-예시 응답:
+예시 응답 (DOM 전략):
 {
   "pageType": "list",
   "urlPattern": "/careers/jobs",
+  "strategy": "dom",
   "selectors": {
     "jobList": ".jobs-container",
     "jobItem": ".job-card",
     "title": ".job-title",
     "location": ".job-location",
+    "department": ".company-name",
     "detailLink": "a.job-link"
   },
   "pagination": {
     "type": "button",
     "nextSelector": ".pagination-next"
+  }
+}
+
+예시 응답 (API 전략 - 데이터가 비어있는 경우):
+{
+  "pageType": "list",
+  "urlPattern": "/recruit/joblist",
+  "strategy": "api",
+  "apiConfig": {
+    "endpoint": "/api/jobs/list",
+    "method": "POST"
+  },
+  "selectors": {
+    "jobList": ".job-list-container",
+    "jobItem": ".job-item",
+    "title": ".job-title",
+    "department": ".company-name"
+  },
+  "pagination": {
+    "type": "none"
   }
 }
 
@@ -145,6 +186,8 @@ export class PageAnalyzer {
         selectors: result.selectors as ListPageSelectors,
         pagination: result.pagination,
         analyzedAt: now,
+        strategy: result.strategy,
+        apiConfig: result.apiConfig,
       });
     } else {
       return PageStructure.createDetailPage({

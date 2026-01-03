@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { PageStructure, PageType, PaginationType } from './pageStructure.domain.js';
+import { PageStructure, PageType, PaginationType, ListPageSelectors, CrawlStrategy } from './pageStructure.domain.js';
+
+// 테스트용 기본 목록 페이지 셀렉터 (필수 필드 포함)
+const createListSelectors = (overrides: Partial<ListPageSelectors> = {}): ListPageSelectors => ({
+  jobList: '.job-list',
+  jobItem: '.job-card',
+  title: '.job-title',
+  department: '.job-company',
+  ...overrides,
+});
 
 describe('PageStructure 도메인', () => {
   describe('생성', () => {
@@ -10,13 +19,10 @@ describe('PageStructure 도메인', () => {
       // When
       const structure = PageStructure.createListPage({
         urlPattern: '/booking/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-          title: '.job-title',
+        selectors: createListSelectors({
           location: '.job-location',
           detailLink: '.job-card a',
-        },
+        }),
         pagination: {
           type: 'button',
           nextSelector: '.pagination-next',
@@ -62,13 +68,10 @@ describe('PageStructure 도메인', () => {
       expect(() =>
         PageStructure.createListPage({
           urlPattern: '/jobs',
-          selectors: {
-            jobList: '',
-            jobItem: '.job-card',
-          },
+          selectors: createListSelectors({ jobList: '' }),
           analyzedAt: now,
         })
-      ).toThrow('jobList 셀렉터는 필수입니다');
+      ).toThrow("'jobList' 셀렉터는 필수입니다");
     });
 
     it('목록 페이지에서 jobItem 셀렉터는 필수이다', () => {
@@ -79,13 +82,38 @@ describe('PageStructure 도메인', () => {
       expect(() =>
         PageStructure.createListPage({
           urlPattern: '/jobs',
-          selectors: {
-            jobList: '.job-list',
-            jobItem: '',
-          },
+          selectors: createListSelectors({ jobItem: '' }),
           analyzedAt: now,
         })
-      ).toThrow('jobItem 셀렉터는 필수입니다');
+      ).toThrow("'jobItem' 셀렉터는 필수입니다");
+    });
+
+    it('목록 페이지에서 title 셀렉터는 필수이다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When & Then
+      expect(() =>
+        PageStructure.createListPage({
+          urlPattern: '/jobs',
+          selectors: createListSelectors({ title: '' }),
+          analyzedAt: now,
+        })
+      ).toThrow("'title' 셀렉터는 필수입니다");
+    });
+
+    it('목록 페이지에서 department 셀렉터는 필수이다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When & Then
+      expect(() =>
+        PageStructure.createListPage({
+          urlPattern: '/jobs',
+          selectors: createListSelectors({ department: '' }),
+          analyzedAt: now,
+        })
+      ).toThrow("'department' 셀렉터는 필수입니다");
     });
   });
 
@@ -97,10 +125,7 @@ describe('PageStructure 도메인', () => {
       // When
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: now,
       });
 
@@ -115,10 +140,7 @@ describe('PageStructure 도메인', () => {
 
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -133,10 +155,7 @@ describe('PageStructure 도메인', () => {
 
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -186,11 +205,7 @@ describe('PageStructure 도메인', () => {
       const now = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-          title: '.title',
-        },
+        selectors: createListSelectors(),
         pagination: {
           type: 'button',
           nextSelector: '.next',
@@ -205,11 +220,7 @@ describe('PageStructure 도메인', () => {
       expect(json).toEqual({
         pageType: 'list',
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-          title: '.title',
-        },
+        selectors: createListSelectors(),
         pagination: {
           type: 'button',
           nextSelector: '.next',
@@ -222,6 +233,7 @@ describe('PageStructure 도메인', () => {
           lastHitAt: null,
           failCount: 0,
         },
+        strategy: 'dom',
       });
     });
 
@@ -230,10 +242,7 @@ describe('PageStructure 도메인', () => {
       const json = {
         pageType: 'list' as PageType,
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         pagination: {
           type: 'button' as PaginationType,
           nextSelector: '.next',
@@ -260,10 +269,7 @@ describe('PageStructure 도메인', () => {
       // When
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: now,
       });
 
@@ -278,10 +284,7 @@ describe('PageStructure 도메인', () => {
       // When
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: now,
       });
 
@@ -297,10 +300,7 @@ describe('PageStructure 도메인', () => {
       // When
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: now,
       });
 
@@ -314,10 +314,7 @@ describe('PageStructure 도메인', () => {
       const hitTime = new Date('2025-01-16T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -334,10 +331,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -356,10 +350,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -375,10 +366,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -396,10 +384,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -419,10 +404,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -441,10 +423,7 @@ describe('PageStructure 도메인', () => {
       const analyzedAt = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt,
       });
 
@@ -460,10 +439,7 @@ describe('PageStructure 도메인', () => {
       const now = new Date('2025-01-15T10:00:00Z');
       const structure = PageStructure.createListPage({
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: now,
       });
       const updated = structure.recordHit(new Date('2025-01-16T10:00:00Z'));
@@ -485,10 +461,7 @@ describe('PageStructure 도메인', () => {
       const json = {
         pageType: 'list' as PageType,
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: '2025-01-15T10:00:00.000Z',
         expiresAt: '2025-01-22T10:00:00.000Z',
         metadata: {
@@ -514,10 +487,7 @@ describe('PageStructure 도메인', () => {
       const json = {
         pageType: 'list' as PageType,
         urlPattern: '/jobs',
-        selectors: {
-          jobList: '.job-list',
-          jobItem: '.job-card',
-        },
+        selectors: createListSelectors(),
         analyzedAt: '2025-01-15T10:00:00.000Z',
         expiresAt: '2025-01-22T10:00:00.000Z',
       };
@@ -530,6 +500,151 @@ describe('PageStructure 도메인', () => {
       expect(structure.metadata.hitCount).toBe(0);
       expect(structure.metadata.lastHitAt).toBeNull();
       expect(structure.metadata.failCount).toBe(0);
+    });
+
+    it('fromJSON에서 목록 페이지 필수 셀렉터가 없으면 에러가 발생한다', () => {
+      // Given
+      const json = {
+        pageType: 'list' as PageType,
+        urlPattern: '/jobs',
+        selectors: {
+          jobList: '.job-list',
+          jobItem: '.job-card',
+          // title과 department 누락
+        },
+        analyzedAt: '2025-01-15T10:00:00.000Z',
+        expiresAt: '2025-01-22T10:00:00.000Z',
+      };
+
+      // When & Then
+      expect(() => PageStructure.fromJSON(json)).toThrow("'title' 셀렉터가 없습니다");
+    });
+  });
+
+  describe('크롤링 전략 (strategy)', () => {
+    it('기본 전략은 dom이다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: createListSelectors(),
+        analyzedAt: now,
+      });
+
+      // Then
+      expect(structure.strategy).toBe('dom');
+    });
+
+    it('API 전략으로 목록 페이지를 생성할 수 있다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When
+      const structure = PageStructure.createListPage({
+        urlPattern: '/recruit/joblist',
+        selectors: createListSelectors(),
+        analyzedAt: now,
+        strategy: 'api',
+        apiConfig: {
+          endpoint: '/Recruit/Home/_GI_List/',
+          method: 'POST',
+          params: {
+            page: 'page',
+            pageSize: 'pagesize',
+          },
+        },
+      });
+
+      // Then
+      expect(structure.strategy).toBe('api');
+      expect(structure.apiConfig).toBeDefined();
+      expect(structure.apiConfig?.endpoint).toBe('/Recruit/Home/_GI_List/');
+      expect(structure.apiConfig?.method).toBe('POST');
+    });
+
+    it('API 전략일 때 apiConfig가 없으면 에러가 발생한다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+
+      // When & Then
+      expect(() =>
+        PageStructure.createListPage({
+          urlPattern: '/jobs',
+          selectors: createListSelectors(),
+          analyzedAt: now,
+          strategy: 'api',
+          // apiConfig 누락
+        })
+      ).toThrow('API 전략에는 apiConfig가 필수입니다');
+    });
+
+    it('toJSON에 strategy가 포함된다', () => {
+      // Given
+      const now = new Date('2025-01-15T10:00:00Z');
+      const structure = PageStructure.createListPage({
+        urlPattern: '/jobs',
+        selectors: createListSelectors(),
+        analyzedAt: now,
+        strategy: 'api',
+        apiConfig: {
+          endpoint: '/api/jobs',
+          method: 'GET',
+        },
+      });
+
+      // When
+      const json = structure.toJSON();
+
+      // Then
+      expect(json.strategy).toBe('api');
+      expect(json.apiConfig).toEqual({
+        endpoint: '/api/jobs',
+        method: 'GET',
+      });
+    });
+
+    it('fromJSON에서 strategy가 복원된다', () => {
+      // Given
+      const json = {
+        pageType: 'list' as PageType,
+        urlPattern: '/jobs',
+        selectors: createListSelectors(),
+        analyzedAt: '2025-01-15T10:00:00.000Z',
+        expiresAt: '2025-01-22T10:00:00.000Z',
+        strategy: 'api' as CrawlStrategy,
+        apiConfig: {
+          endpoint: '/api/jobs',
+          method: 'POST' as const,
+          params: { page: 'p' },
+        },
+      };
+
+      // When
+      const structure = PageStructure.fromJSON(json);
+
+      // Then
+      expect(structure.strategy).toBe('api');
+      expect(structure.apiConfig?.endpoint).toBe('/api/jobs');
+    });
+
+    it('fromJSON에서 strategy가 없으면 dom으로 기본값 설정된다', () => {
+      // Given: 기존 캐시 형식 (strategy 없음)
+      const json = {
+        pageType: 'list' as PageType,
+        urlPattern: '/jobs',
+        selectors: createListSelectors(),
+        analyzedAt: '2025-01-15T10:00:00.000Z',
+        expiresAt: '2025-01-22T10:00:00.000Z',
+      };
+
+      // When
+      const structure = PageStructure.fromJSON(json);
+
+      // Then
+      expect(structure.strategy).toBe('dom');
+      expect(structure.apiConfig).toBeUndefined();
     });
   });
 });

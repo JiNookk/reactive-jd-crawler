@@ -78,8 +78,8 @@
       "jobItem": "._2AOmjKmlEtuR_KEoehWYcN",
       "title": "._1RRlPtjyYmeDGCWt9lrk2P",
       "location": "._3CJNtKfv5mLnNfeqL1jgRB ._3vj2eS7k7Mwpko5_6OSRu2",
-      "department": null,
-      "detailLink": null
+      "department": "._1KYNSENqWg4IDHby5E9sqK ._3vj2eS7k7Mwpko5_6OSRu2",
+      "detailLink": "._2AOmjKmlEtuR_KEoehWYcN"
     },
     "analyzedAt": "2025-12-08T09:56:00.317Z",
     "expiresAt": "2025-12-15T09:56:00.317Z",
@@ -246,6 +246,7 @@
       "jobItem": ".card.position-card",
       "title": ".position-title",
       "location": ".position-location",
+      "department": ".position-department",
       "detailLink": ".card.position-card"
     },
     "analyzedAt": "2025-12-11T00:18:37.159Z",
@@ -317,7 +318,7 @@
       "jobItem": "li.css-1q2dra3",
       "title": "h3 a[data-automation-id='jobTitle']",
       "location": "div[data-automation-id='locations'] dd.css-129m7dg",
-      "department": null,
+      "department": "div[data-automation-id='subtitle'] dd.css-129m7dg",
       "detailLink": "h3 a[data-automation-id='jobTitle']"
     },
     "analyzedAt": "2025-12-11T00:27:50.714Z",
@@ -391,7 +392,7 @@
       "jobList": "ul[data-cy='job-list']",
       "jobItem": "li.Card_Card__aaatv",
       "title": ".JobCard_JobCard__body__position__NLhOu",
-      "company": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__company__ByVLu",
+      "department": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__company__ByVLu",
       "location": ".CompanyNameWithLocationPeriod_CompanyNameWithLocationPeriod__location__4_w0l",
       "detailLink": "a[href^='/wd/']",
       "thumbnail": ".JobCard_JobCard__thumb__iOtFn img"
@@ -406,6 +407,101 @@
     },
     "pagination": {
       "type": "infinite-scroll"
+    }
+  },
+  "www.saramin.co.kr/zf_user/search": {
+    "pageType": "list",
+    "urlPattern": "/zf_user/search",
+    "selectors": {
+      "jobList": "#recruit_info_list",
+      "jobItem": ".item_recruit",
+      "title": ".job_tit a",
+      "department": ".corp_name a",
+      "location": ".job_condition span:first-child",
+      "experience": ".job_condition span:nth-child(2)",
+      "education": ".job_condition span:nth-child(3)",
+      "employmentType": ".job_condition span:nth-child(4)",
+      "deadline": ".job_date .date",
+      "detailLink": ".job_tit a",
+      "salary": ".area_job_title .txt_salary",
+      "jobSector": ".job_sector"
+    },
+    "analyzedAt": "2026-01-03T02:23:53.334Z",
+    "expiresAt": "2026-01-10T02:23:53.334Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
+    "pagination": {
+      "type": "url-param",
+      "paramName": "recruitPage",
+      "paramStart": 1
+    }
+  },
+  "www.saramin.co.kr/zf_user/jobs/relay/view": {
+    "pageType": "detail",
+    "urlPattern": "/zf_user/jobs/relay/view?rec_idx=:id",
+    "selectors": {
+      "title": "h1.tit_job",
+      "location": ".jv_summary .col dl:has(dt:contains('근무지역')) dd",
+      "department": null,
+      "description": "#iframe_content_0",
+      "requirements": null,
+      "responsibilities": null,
+      "salary": ".jv_summary .col dl:has(dt:contains('급여')) dd",
+      "employmentType": ".jv_summary .col dl:has(dt:contains('근무형태')) dd strong",
+      "postedDate": null,
+      "closingDate": ".info_period dd:last-child",
+      "experience": ".jv_summary .col dl:has(dt:contains('경력')) dd strong",
+      "education": ".jv_summary .col dl:has(dt:contains('학력')) dd strong",
+      "workingHours": ".jv_summary .col dl:has(dt:contains('출퇴근 시간')) dd",
+      "companyName": ".jv_header .title_inner a.company",
+      "benefits": ".jv_benefit .details .row dl dd",
+      "views": ".list_meta li:has(strong)",
+      "scraps": ".btn_scrap .txt_scrap",
+      "dday": ".btn_apply .dday"
+    },
+    "analyzedAt": "2026-01-03T02:24:37.468Z",
+    "expiresAt": "2026-01-10T02:24:37.468Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    }
+  },
+  "www.jobkorea.co.kr/Recruit/GI_List": {
+    "pageType": "list",
+    "urlPattern": "/Recruit/GI_List",
+    "selectors": {
+      "jobList": ".tplList.tplJobList table tbody",
+      "jobItem": "tr.devloopArea",
+      "title": ".tplTit .titBx strong a.link",
+      "department": ".tplCo a.link",
+      "location": ".tplTit .etc span.cell:nth-child(3)",
+      "detailLink": ".tplTit .titBx strong a"
+    },
+    "analyzedAt": "2026-01-03T10:00:00.000Z",
+    "expiresAt": "2026-01-10T10:00:00.000Z",
+    "metadata": {
+      "version": 1,
+      "hitCount": 0,
+      "lastHitAt": null,
+      "failCount": 0
+    },
+    "pagination": {
+      "type": "none"
+    },
+    "strategy": "api",
+    "apiConfig": {
+      "endpoint": "/Recruit/Home/_GI_List/",
+      "method": "POST",
+      "params": {
+        "page": "page",
+        "pageSize": "pagesize"
+      }
     }
   }
 }

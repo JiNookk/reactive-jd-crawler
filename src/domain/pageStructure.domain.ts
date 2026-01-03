@@ -2,6 +2,7 @@
 
 export type PageType = 'list' | 'detail';
 export type PaginationType = 'button' | 'infinite-scroll' | 'url-param' | 'none';
+export type CrawlStrategy = 'dom' | 'api';
 
 export interface PaginationConfig {
   type: PaginationType;
@@ -9,6 +10,13 @@ export interface PaginationConfig {
   scrollContainer?: string;
   paramName?: string;
   paramStart?: number;
+}
+
+export interface ApiConfig {
+  endpoint: string;
+  method: 'GET' | 'POST';
+  params?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 export interface ListPageSelectors {
@@ -41,6 +49,8 @@ export interface ListPageProps {
   selectors: ListPageSelectors;
   pagination?: PaginationConfig;
   analyzedAt: Date;
+  strategy?: CrawlStrategy;
+  apiConfig?: ApiConfig;
 }
 
 export interface DetailPageProps {
@@ -74,6 +84,8 @@ export interface PageStructureJSON {
   analyzedAt: string;
   expiresAt: string;
   metadata?: CacheMetadata;
+  strategy?: CrawlStrategy;
+  apiConfig?: ApiConfig;
 }
 
 const CACHE_EXPIRY_DAYS = 7;
@@ -86,7 +98,9 @@ export class PageStructure {
     public readonly analyzedAt: string,
     public readonly expiresAt: string,
     public readonly pagination: PaginationConfig | undefined,
-    public readonly metadata: CacheMetadata
+    public readonly metadata: CacheMetadata,
+    public readonly strategy: CrawlStrategy = 'dom',
+    public readonly apiConfig: ApiConfig | undefined = undefined
   ) {}
 
   recordHit(hitTime: Date): PageStructure {
@@ -102,7 +116,9 @@ export class PageStructure {
         hitCount: this.metadata.hitCount + 1,
         lastHitAt: hitTime.toISOString(),
         failCount: 0, // 성공 시 실패 카운트 리셋
-      }
+      },
+      this.strategy,
+      this.apiConfig
     );
   }
 
@@ -117,7 +133,9 @@ export class PageStructure {
       {
         ...this.metadata,
         failCount: this.metadata.failCount + 1,
-      }
+      },
+      this.strategy,
+      this.apiConfig
     );
   }
 
@@ -136,18 +154,26 @@ export class PageStructure {
       {
         ...this.metadata,
         version: this.metadata.version + 1,
-      }
+      },
+      this.strategy,
+      this.apiConfig
     );
   }
 
   static createListPage(props: ListPageProps): PageStructure {
-    // 유효성 검사
-    if (!props.selectors.jobList || props.selectors.jobList.trim() === '') {
-      throw new Error('jobList 셀렉터는 필수입니다');
+    // 필수 셀렉터 검증
+    const requiredSelectors = ['jobList', 'jobItem', 'title', 'department'] as const;
+    for (const field of requiredSelectors) {
+      const value = props.selectors[field];
+      if (!value || value.trim() === '') {
+        throw new Error(`[PageStructure] 목록 페이지에서 '${field}' 셀렉터는 필수입니다`);
+      }
     }
 
-    if (!props.selectors.jobItem || props.selectors.jobItem.trim() === '') {
-      throw new Error('jobItem 셀렉터는 필수입니다');
+    // API 전략일 때 apiConfig 필수 검증
+    const strategy = props.strategy ?? 'dom';
+    if (strategy === 'api' && !props.apiConfig) {
+      throw new Error('[PageStructure] API 전략에는 apiConfig가 필수입니다');
     }
 
     const expiresAt = new Date(props.analyzedAt);
@@ -160,7 +186,9 @@ export class PageStructure {
       props.analyzedAt.toISOString(),
       expiresAt.toISOString(),
       props.pagination,
-      DEFAULT_METADATA
+      DEFAULT_METADATA,
+      strategy,
+      props.apiConfig
     );
   }
 
@@ -192,6 +220,17 @@ export class PageStructure {
   }
 
   static fromJSON(json: PageStructureJSON): PageStructure {
+    // 목록 페이지 필수 셀렉터 검증
+    if (json.pageType === 'list') {
+      const requiredSelectors = ['jobList', 'jobItem', 'title', 'department'] as const;
+      for (const field of requiredSelectors) {
+        const value = (json.selectors as ListPageSelectors)[field];
+        if (!value || value.trim() === '') {
+          throw new Error(`[PageStructure] 캐시된 목록 페이지에 '${field}' 셀렉터가 없습니다. 캐시를 삭제하고 다시 크롤링하세요.`);
+        }
+      }
+    }
+
     return new PageStructure(
       json.pageType,
       json.urlPattern,
@@ -199,7 +238,9 @@ export class PageStructure {
       json.analyzedAt,
       json.expiresAt,
       json.pagination,
-      json.metadata ?? DEFAULT_METADATA
+      json.metadata ?? DEFAULT_METADATA,
+      json.strategy ?? 'dom',
+      json.apiConfig
     );
   }
 
@@ -215,10 +256,15 @@ export class PageStructure {
       analyzedAt: this.analyzedAt,
       expiresAt: this.expiresAt,
       metadata: this.metadata,
+      strategy: this.strategy,
     };
 
     if (this.pagination) {
       json.pagination = this.pagination;
+    }
+
+    if (this.apiConfig) {
+      json.apiConfig = this.apiConfig;
     }
 
     return json;

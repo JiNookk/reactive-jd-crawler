@@ -5,6 +5,7 @@ import { DataExtractor } from '../../infra/extractor/dataExtractor.js';
 import { StructureCache } from '../../infra/cache/structureCache.js';
 import { PageStructure } from '../../domain/pageStructure.domain.js';
 import { JobPosting } from '../../domain/jobPosting.domain.js';
+import { ApiCrawler } from '../../infra/crawler/apiCrawler.js';
 
 export interface CrawlOptions {
   company: string;
@@ -31,12 +32,14 @@ export class CrawlerOrchestrator {
   private analyzer: PageAnalyzer;
   private extractor: DataExtractor;
   private cache: StructureCache;
+  private apiCrawler: ApiCrawler;
 
   constructor(options?: { headless?: boolean; cachePath?: string }) {
     this.fetcher = new PageFetcher({ headless: options?.headless ?? true });
     this.analyzer = new PageAnalyzer();
     this.extractor = new DataExtractor();
     this.cache = new StructureCache(options?.cachePath);
+    this.apiCrawler = new ApiCrawler();
   }
 
   async crawl(url: string, options: CrawlOptions): Promise<CrawlResult> {
@@ -51,7 +54,19 @@ export class CrawlerOrchestrator {
       // 캐시 로드
       await this.cache.load();
 
-      // 페이지 가져오기
+      // URL에서 캐시 키 생성 (Playwright 없이)
+      const cacheKey = PageStructure.generateCacheKey(url);
+
+      // 캐시 확인
+      let structure = this.cache.get(cacheKey);
+
+      // API 전략이면서 캐시가 있으면 ApiCrawler 사용 (Playwright 불필요)
+      if (structure?.strategy === 'api') {
+        console.log(`[Strategy] API 전략 감지, ApiCrawler 사용`);
+        return await this.crawlWithApi(url, structure, options, crawledAt);
+      }
+
+      // DOM 전략 또는 캐시 미스: Playwright 사용
       console.log(`[Fetcher] 페이지 로드 중: ${url}`);
       const page = await this.fetcher.getPage();
 
@@ -64,10 +79,6 @@ export class CrawlerOrchestrator {
       await page.waitForTimeout(2000);
 
       const currentUrl = page.url();
-      const cacheKey = PageStructure.generateCacheKey(currentUrl);
-
-      // 캐시 확인
-      let structure = this.cache.get(cacheKey);
 
       if (structure) {
         console.log(`[Cache] 캐시된 구조 사용: ${cacheKey}`);
@@ -117,13 +128,19 @@ export class CrawlerOrchestrator {
       pagesProcessed = 1;
       console.log(`[Extractor] 페이지 1: ${jobs.length}개 직무 추출 (신규: ${jobs.length - duplicatesRemoved}개)`);
 
-      // 페이지네이션 처리
-      if (structure.pagination && options.maxPages && options.maxPages > 1) {
+      // 페이지네이션 처리 (maxPages: 0 = 무제한, 1 = 첫 페이지만, 2+ = 해당 수만큼)
+      const shouldPaginate = structure.pagination &&
+        options.maxPages !== undefined &&
+        (options.maxPages === 0 || options.maxPages > 1);
+
+      if (shouldPaginate) {
+        // maxPages가 0이면 무제한 (9999로 설정)
+        const effectiveMaxPages = options.maxPages === 0 ? 9999 : options.maxPages!;
         const paginationResult = await this.handlePagination(
           page,
           structure,
           options.company,
-          options.maxPages - 1,
+          effectiveMaxPages - 1,
           seenJobKeys,
           options.retryCount ?? 2,
           options.retryDelay ?? 1000,
@@ -190,6 +207,10 @@ export class CrawlerOrchestrator {
     // 무한 스크롤: 이전까지 처리한 DOM 아이템 수 추적
     let lastProcessedIndex = initialItemCount;
 
+    // URL 파라미터 방식: 연속 빈 페이지 카운터 (3회 연속 빈 페이지면 종료)
+    let consecutiveEmptyPages = 0;
+    const MAX_CONSECUTIVE_EMPTY = 3;
+
     for (let pageNum = 0; pageNum < maxPages; pageNum++) {
       const currentPageDisplay = pageNum + 2; // 첫 페이지가 1이므로 2부터 시작
       let success = false;
@@ -239,6 +260,17 @@ export class CrawlerOrchestrator {
 
           pagesProcessed++;
           console.log(`[Pagination] 페이지 ${currentPageDisplay}: ${jobs.length}개 추출 (신규 추가: ${newJobsCount}개)`);
+
+          // URL 파라미터 방식: 연속 빈 페이지 체크
+          if (jobs.length === 0) {
+            consecutiveEmptyPages++;
+            if (consecutiveEmptyPages >= MAX_CONSECUTIVE_EMPTY) {
+              console.log(`[Pagination] ${MAX_CONSECUTIVE_EMPTY}회 연속 빈 페이지 - 종료`);
+              return { jobs: allJobs, pagesProcessed, duplicatesRemoved };
+            }
+          } else {
+            consecutiveEmptyPages = 0; // 리셋
+          }
 
           // Rate limiting
           await this.delay(1000);
@@ -487,5 +519,48 @@ export class CrawlerOrchestrator {
     const normalizedLocation = (job.location || '').toLowerCase().trim();
     const normalizedCompany = job.company.toLowerCase().trim();
     return `${normalizedCompany}:${normalizedTitle}:${normalizedLocation}`;
+  }
+
+  /**
+   * API 전략으로 크롤링 (Playwright 불필요)
+   */
+  private async crawlWithApi(
+    url: string,
+    structure: PageStructure,
+    options: CrawlOptions,
+    crawledAt: string
+  ): Promise<CrawlResult> {
+    const result = await this.apiCrawler.crawl(url, structure, {
+      company: options.company,
+      maxPages: options.maxPages ?? 1,
+    });
+
+    // 중복 제거
+    const seenJobKeys = new Set<string>();
+    const uniqueJobs: JobPosting[] = [];
+    let duplicatesRemoved = 0;
+
+    for (const job of result.jobs) {
+      const jobKey = this.generateJobKey(job);
+      if (!seenJobKeys.has(jobKey)) {
+        seenJobKeys.add(jobKey);
+        uniqueJobs.push(job);
+      } else {
+        duplicatesRemoved++;
+      }
+    }
+
+    // 캐시 히트는 이미 cache.get()에서 기록됨
+
+    return {
+      company: options.company,
+      sourceUrl: url,
+      jobs: uniqueJobs,
+      totalCount: result.totalCount,
+      crawledAt,
+      errors: result.errors,
+      pagesProcessed: result.pagesProcessed,
+      duplicatesRemoved,
+    };
   }
 }

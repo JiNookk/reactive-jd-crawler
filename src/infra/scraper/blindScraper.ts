@@ -131,14 +131,10 @@ export class BlindScraper {
       await this.init();
       if (!this.page) throw new Error('Page not initialized');
 
-      // 1. 홈페이지로 이동 (첫 번째 검색이거나 홈이 아닐 때)
-      await this.goToHomepage();
-
       const searchQuery = this.toSearchQuery(companyName);
       console.log(`[Blind] 검색 중: ${companyName} → "${searchQuery}"`);
 
-      // 2. 검색 입력창 찾기 (locator 사용으로 안정성 향상)
-      // Blind 사이트의 검색 입력창 셀렉터들
+      // 1. 현재 페이지에서 검색창 찾기 (홈 이동 전에 먼저 시도)
       const searchInputSelectors = [
         'input[placeholder*="검색"]',
         'input[placeholder*="Search"]',
@@ -149,11 +145,28 @@ export class BlindScraper {
       ];
 
       let searchInputLocator = null;
-      for (const selector of searchInputSelectors) {
-        const locator = this.page.locator(selector).first();
-        if (await locator.isVisible({ timeout: 2000 }).catch(() => false)) {
-          searchInputLocator = locator;
-          break;
+
+      // 첫 검색이 아니면 현재 페이지에서 검색창 먼저 시도
+      if (!this.isOnHomepage) {
+        for (const selector of searchInputSelectors) {
+          const locator = this.page.locator(selector).first();
+          if (await locator.isVisible({ timeout: 1000 }).catch(() => false)) {
+            searchInputLocator = locator;
+            break;
+          }
+        }
+      }
+
+      // 검색창 없으면 홈으로 이동
+      if (!searchInputLocator) {
+        await this.goToHomepage();
+
+        for (const selector of searchInputSelectors) {
+          const locator = this.page.locator(selector).first();
+          if (await locator.isVisible({ timeout: 2000 }).catch(() => false)) {
+            searchInputLocator = locator;
+            break;
+          }
         }
       }
 
@@ -164,8 +177,19 @@ export class BlindScraper {
       }
 
       // 3. 검색어 입력 (인간처럼 타이핑)
+      // 검색바 클릭 전 광고 제거 (첫 로드 시 광고가 검색바를 막을 수 있음)
+      await this.closePopups();
       await this.humanDelay(300, 600);
-      await searchInputLocator.click();
+
+      // 클릭 시도 - 실패하면 광고 제거 후 재시도
+      try {
+        await searchInputLocator.click({ timeout: 3000 });
+      } catch {
+        console.log('[Blind] 검색바 클릭 실패, 광고 제거 후 재시도...');
+        await this.closePopups();
+        await this.humanDelay(500, 1000);
+        await searchInputLocator.click({ timeout: 5000 });
+      }
       await this.humanDelay(200, 400);
 
       // 기존 텍스트 지우기 (Mac은 Meta+a)
@@ -275,9 +299,9 @@ export class BlindScraper {
 
       const rating = CompanyRating.create(props);
 
-      // 9. 홈으로 돌아가기 (다음 검색 준비)
-      await this.humanDelay(1000, 2000);
-      await this.goToHomepage();
+      // 9. 다음 검색을 위해 상태 유지 (홈 이동 불필요 - 현재 페이지에도 검색창 있음)
+      // isOnHomepage는 false 유지 - 다음 검색 시 goToHomepage()가 호출되지만
+      // 검색창이 있으면 바로 검색 진행
 
       return {
         found: true,
@@ -360,29 +384,80 @@ export class BlindScraper {
     // 광고/팝업 닫기 시도
     await this.closePopups();
 
-    // 회사 링크 셀렉터들 시도
-    const selectors = [
-      `a[href*="/company/${encodeURIComponent(searchQuery)}"]`,
-      `a[href*="/kr/company/"]`,
-      '[class*="company"] a',
-      '[class*="CompanyCard"] a',
-      '[class*="search-result"] a[href*="company"]',
-      '[class*="SearchResult"] a',
-      'a[href*="company"]',
+    // 검색어 정규화 (공백, 특수문자 제거하고 소문자로)
+    const normalizeText = (text: string): string => {
+      return text
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^\w가-힣]/g, '');
+    };
+
+    const normalizedQuery = normalizeText(searchQuery);
+    let bestMatch: { link: any; companyName: string; score: number } | null = null;
+
+    // 방법 1: 검색 결과 카드에서 회사명 요소 추출
+    const resultCardSelectors = [
+      '[class*="SearchResult"]',
+      '[class*="search-result"]',
+      '[class*="CompanyCard"]',
+      '[class*="company-card"]',
+      '[data-testid*="company"]',
     ];
 
-    for (const selector of selectors) {
+    for (const cardSelector of resultCardSelectors) {
       try {
-        const links = this.page.locator(selector);
-        const count = await links.count();
+        const cards = this.page.locator(cardSelector);
+        const count = await cards.count();
 
         for (let i = 0; i < count; i++) {
-          const link = links.nth(i);
-          const href = await link.getAttribute('href');
-          const text = await link.textContent();
+          const card = cards.nth(i);
 
-          if (href?.includes('company') && (text?.toLowerCase().includes(searchQuery.toLowerCase()) || href.includes(encodeURIComponent(searchQuery)))) {
-            return link;
+          // 카드 내에서 회사명 요소 찾기
+          const companyNameSelectors = [
+            '[class*="company-name"]',
+            '[class*="companyName"]',
+            '[class*="CompanyName"]',
+            'h2',
+            'h3',
+            '[class*="title"]',
+            '[class*="name"]',
+          ];
+
+          for (const nameSelector of companyNameSelectors) {
+            try {
+              const nameElement = card.locator(nameSelector).first();
+              if (await nameElement.isVisible({ timeout: 500 }).catch(() => false)) {
+                const companyName = await nameElement.textContent();
+                if (!companyName) continue;
+
+                const normalizedName = normalizeText(companyName);
+                const link = card.locator('a[href*="company"]').first();
+
+                if (!(await link.isVisible({ timeout: 500 }).catch(() => false))) continue;
+
+                // 정확히 일치
+                if (normalizedName === normalizedQuery) {
+                  console.log(`[Blind] 정확한 매칭: "${companyName.trim()}"`);
+                  return link;
+                }
+
+                // 부분 일치 점수 계산
+                let score = 0;
+                if (normalizedName.includes(normalizedQuery)) {
+                  score = normalizedQuery.length / normalizedName.length;
+                } else if (normalizedQuery.includes(normalizedName) && normalizedName.length >= 2) {
+                  score = normalizedName.length / normalizedQuery.length;
+                }
+
+                if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+                  bestMatch = { link, companyName: companyName.trim(), score };
+                  console.log(`[Blind] 부분 매칭: "${companyName.trim()}" (score: ${score.toFixed(2)})`);
+                }
+                break; // 이 카드에서 회사명을 찾았으므로 다음 카드로
+              }
+            } catch {
+              continue;
+            }
           }
         }
       } catch {
@@ -390,14 +465,64 @@ export class BlindScraper {
       }
     }
 
-    // 첫 번째 회사 링크라도 반환
-    for (const selector of selectors) {
-      const link = this.page.locator(selector).first();
-      if (await link.isVisible({ timeout: 1000 }).catch(() => false)) {
-        return link;
+    // 방법 2: 직접 회사 링크에서 회사명 추출 (fallback)
+    if (!bestMatch) {
+      const linkSelectors = [
+        'a[href*="/kr/company/"]',
+        'a[href*="/company/"]',
+      ];
+
+      for (const selector of linkSelectors) {
+        try {
+          const links = this.page.locator(selector);
+          const count = await links.count();
+
+          for (let i = 0; i < count; i++) {
+            const link = links.nth(i);
+            const href = await link.getAttribute('href');
+            const text = await link.textContent();
+
+            if (!href || !text) continue;
+
+            // URL에서 회사 슬러그 추출
+            const companySlugMatch = href.match(/\/company\/([^\/]+)/);
+            const companySlug = companySlugMatch?.[1] ? decodeURIComponent(companySlugMatch[1]) : '';
+
+            const normalizedText = normalizeText(text);
+            const normalizedSlug = normalizeText(companySlug);
+
+            // 정확히 일치 (텍스트 또는 슬러그)
+            if (normalizedText === normalizedQuery || normalizedSlug === normalizedQuery) {
+              console.log(`[Blind] 링크에서 정확한 매칭: "${text.trim()}"`);
+              return link;
+            }
+
+            // 부분 일치
+            let score = 0;
+            if (normalizedText.includes(normalizedQuery) || normalizedSlug.includes(normalizedQuery)) {
+              score = normalizedQuery.length / Math.max(normalizedText.length, normalizedSlug.length);
+            } else if (normalizedQuery.includes(normalizedText) && normalizedText.length >= 2) {
+              score = normalizedText.length / normalizedQuery.length;
+            }
+
+            if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+              bestMatch = { link, companyName: text.trim(), score };
+              console.log(`[Blind] 링크에서 부분 매칭: "${text.trim()}" (score: ${score.toFixed(2)})`);
+            }
+          }
+        } catch {
+          continue;
+        }
       }
     }
 
+    // 유사도가 0.5 이상인 경우에만 반환
+    if (bestMatch && bestMatch.score >= 0.5) {
+      console.log(`[Blind] 최종 선택: "${bestMatch.companyName}" (score: ${bestMatch.score.toFixed(2)})`);
+      return bestMatch.link;
+    }
+
+    console.log(`[Blind] "${searchQuery}"와 일치하는 회사를 찾을 수 없습니다.`);
     return null;
   }
 
@@ -832,11 +957,17 @@ export class BlindScraper {
   // ===== 유틸리티 =====
 
   /**
-   * 회사명을 검색어로 변환 (괄호 제거)
+   * 회사명을 검색어로 변환 (법인 표기 제거)
+   * - 괄호 안 내용: (주), (유), (사) 등
+   * - 법인 접미사: 주식회사, 유한회사, 유한책임회사
+   * - 영문 접미사: Inc., Corp., Co., Ltd. 등
    */
   private toSearchQuery(companyName: string): string {
     return companyName
-      .replace(/\([^)]*\)/g, '')
+      .replace(/\([^)]*\)/g, '')           // 괄호 안 내용 제거
+      .replace(/주식회사|유한회사|유한책임회사/g, '')  // 한글 법인 표기
+      .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')  // 영문 법인 표기
+      .replace(/\s+/g, ' ')                // 연속 공백 → 단일 공백
       .trim();
   }
 
