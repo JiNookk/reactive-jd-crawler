@@ -16,6 +16,7 @@ import { FailureCase } from "../../domain/failureCase.domain.js";
 import { FailureCaseStore } from "../cache/failureCaseStore.js";
 import { AgentCheckpoint } from "../../domain/checkpoint.domain.js";
 import { CheckpointStore } from "../cache/checkpointStore.js";
+import { MemoryManager } from "../../domain/memoryBlock.domain.js";
 
 // 로거 클래스 - 콘솔과 파일 동시 출력
 class AgentLogger {
@@ -120,6 +121,7 @@ export class CrawlerAgent {
   private checkpointStore: CheckpointStore;
   private checkpoint: AgentCheckpoint;
   private sessionId: string;
+  private memoryManager: MemoryManager;
 
   constructor(private page: Page, private company: string, apiKey?: string) {
     this.client = new Anthropic({
@@ -149,6 +151,37 @@ export class CrawlerAgent {
       lastScrollPosition: 0,
       consecutiveScrollNoProgress: 0,
     };
+
+    // Memory Blocks 초기화
+    this.memoryManager = MemoryManager.create(
+      [
+        {
+          name: "persona",
+          content: "채용공고 크롤러 에이전트. 정확하고 신속하게 직무 정보 수집.",
+          maxTokens: 100,
+          priority: 1, // 절대 삭제 안 함
+        },
+        {
+          name: "current_task",
+          content: `회사: ${company}\n목표: 모든 직무 공고 수집`,
+          maxTokens: 300,
+          priority: 2,
+        },
+        {
+          name: "collected_data",
+          content: "수집된 직무: 없음",
+          maxTokens: 1000,
+          priority: 3,
+        },
+        {
+          name: "recent_actions",
+          content: "최근 행동: 없음",
+          maxTokens: 500,
+          priority: 4, // 필요시 압축 가능
+        },
+      ],
+      { maxTotalTokens: 4000, compressionThreshold: 0.9 }
+    );
   }
 
   async run(url: string): Promise<JobPosting[]> {
@@ -162,9 +195,18 @@ export class CrawlerAgent {
       createdAt: new Date(),
     });
 
+    // Memory Block 업데이트: current_task에 URL 추가
+    this.memoryManager = this.memoryManager.updateBlock(
+      "current_task",
+      `회사: ${this.company}\nURL: ${url}\n목표: 모든 직무 공고 수집`
+    );
+
     // 페이지 로드
     this.logger.log(`[Agent] 페이지 로드 중: ${url}`);
     this.logger.log(`[Agent] 세션 ID: ${this.sessionId}`);
+    this.logger.log(
+      `[Agent] 메모리 사용량: ${this.memoryManager.usagePercentage.toFixed(1)}%`
+    );
     await this.page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     await this.page.waitForTimeout(3000);
 
@@ -373,6 +415,16 @@ URL: ${url}
             this.logger.log(
               `[Agent] 새 직무 ${newJobs.length}개 추가 (총 ${this.state.extractedJobs.length}개)`
             );
+
+            // Memory Block 업데이트: collected_data
+            const jobSummary = this.state.extractedJobs
+              .slice(-10) // 최근 10개만
+              .map((j) => j.title)
+              .join(", ");
+            this.memoryManager = this.memoryManager.updateBlock(
+              "collected_data",
+              `수집된 직무: ${this.state.extractedJobs.length}개\n최근: ${jobSummary}`
+            );
           } else {
             this.state.consecutiveNoNewJobs++;
             this.logger.log(
@@ -405,6 +457,40 @@ URL: ${url}
           result: result.success ? "success" : "failed",
         };
         this.state.history.push(stepRecord);
+
+        // Memory Block 업데이트: recent_actions
+        const recentActions = this.state.history
+          .slice(-5) // 최근 5개만
+          .map((h) => `${h.toolName}(${h.result})`)
+          .join(" → ");
+        this.memoryManager = this.memoryManager.updateBlock(
+          "recent_actions",
+          `최근 행동: ${recentActions}`
+        );
+
+        // 메모리 압축 체크
+        if (this.memoryManager.needsCompression()) {
+          this.logger.log(
+            `[🧠 Memory] 압축 필요 (사용량: ${this.memoryManager.usagePercentage.toFixed(1)}%)`
+          );
+          // 우선순위 낮은 블록부터 압축 (recent_actions)
+          const candidates = this.memoryManager.getCompressionCandidates();
+          if (candidates.length > 0 && candidates[0]) {
+            const target = candidates[0];
+            // 간단히 최근 3개 행동만 유지
+            const compressedActions = this.state.history
+              .slice(-3)
+              .map((h) => `${h.toolName}(${h.result})`)
+              .join(" → ");
+            this.memoryManager = this.memoryManager.compressBlock(
+              target.name,
+              `최근: ${compressedActions}`
+            );
+            this.logger.log(
+              `[🧠 Memory] ${target.name} 블록 압축 완료 (사용량: ${this.memoryManager.usagePercentage.toFixed(1)}%)`
+            );
+          }
+        }
 
         // 메시지에 응답 추가
         messages.push({
