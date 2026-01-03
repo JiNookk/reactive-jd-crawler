@@ -1,19 +1,21 @@
 // ReAct 패턴 기반 크롤러 Agent (Reflexion + Checkpoint 패턴 적용)
-import Anthropic from '@anthropic-ai/sdk';
-import { Page } from 'playwright';
-import { v4 as uuidv4 } from 'uuid';
-import * as fs from 'fs';
-import * as path from 'path';
-import { agentTools } from './tools.js';
-import { ToolExecutor, ExtractedJob, PageInfo } from './toolExecutor.js';
-import { JobPosting } from '../../domain/jobPosting.domain.js';
+import Anthropic from "@anthropic-ai/sdk";
+import { Page } from "playwright";
+import { v4 as uuidv4 } from "uuid";
+import * as fs from "fs";
+import * as path from "path";
+import { agentTools } from "./tools.js";
+import { ToolExecutor, ExtractedJob, PageInfo } from "./toolExecutor.js";
+import { JobPosting } from "../../domain/jobPosting.domain.js";
 import {
   ReflectionContext,
   ReflectionResult,
   ReflectionPromptBuilder,
-} from '../../domain/reflection.domain.js';
-import { AgentCheckpoint } from '../../domain/checkpoint.domain.js';
-import { CheckpointStore } from '../cache/checkpointStore.js';
+} from "../../domain/reflection.domain.js";
+import { FailureCase } from "../../domain/failureCase.domain.js";
+import { FailureCaseStore } from "../cache/failureCaseStore.js";
+import { AgentCheckpoint } from "../../domain/checkpoint.domain.js";
+import { CheckpointStore } from "../cache/checkpointStore.js";
 
 // 로거 클래스 - 콘솔과 파일 동시 출력
 class AgentLogger {
@@ -21,24 +23,24 @@ class AgentLogger {
   private stream: fs.WriteStream;
 
   constructor(company: string) {
-    const logDir = 'output/logs';
+    const logDir = "output/logs";
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     this.logFile = path.join(logDir, `agent_${company}_${timestamp}.log`);
-    this.stream = fs.createWriteStream(this.logFile, { flags: 'a' });
+    this.stream = fs.createWriteStream(this.logFile, { flags: "a" });
 
-    this.log(`\n${'═'.repeat(70)}`);
+    this.log(`\n${"═".repeat(70)}`);
     this.log(`Agent 로그 시작: ${new Date().toISOString()}`);
     this.log(`회사: ${company}`);
-    this.log(`${'═'.repeat(70)}\n`);
+    this.log(`${"═".repeat(70)}\n`);
   }
 
   log(message: string): void {
     console.log(message);
-    this.stream.write(message + '\n');
+    this.stream.write(message + "\n");
   }
 
   close(): void {
@@ -207,32 +209,30 @@ export class CrawlerAgent {
   private toolExecutor: ToolExecutor;
   private state: AgentState;
   private logger: AgentLogger;
+  private failureCaseStore: FailureCaseStore;
   private checkpointStore: CheckpointStore;
   private checkpoint: AgentCheckpoint;
   private sessionId: string;
 
-  constructor(
-    private page: Page,
-    private company: string,
-    apiKey?: string
-  ) {
+  constructor(private page: Page, private company: string, apiKey?: string) {
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
     });
     this.toolExecutor = new ToolExecutor(page, company);
     this.logger = new AgentLogger(company);
+    this.failureCaseStore = new FailureCaseStore();
     this.checkpointStore = new CheckpointStore();
     this.sessionId = uuidv4().slice(0, 8);
     this.checkpoint = AgentCheckpoint.create({
       sessionId: this.sessionId,
-      url: '',
+      url: "",
       company,
       createdAt: new Date(),
     });
     this.state = {
-      url: '',
+      url: "",
       company,
-      goal: '모든 직무 공고 수집',
+      goal: "모든 직무 공고 수집",
       history: [],
       extractedJobs: [],
       done: false,
@@ -258,13 +258,13 @@ export class CrawlerAgent {
     // 페이지 로드
     this.logger.log(`[Agent] 페이지 로드 중: ${url}`);
     this.logger.log(`[Agent] 세션 ID: ${this.sessionId}`);
-    await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+    await this.page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     await this.page.waitForTimeout(3000);
 
     // 대화 메시지 초기화
     const messages: Anthropic.Messages.MessageParam[] = [
       {
-        role: 'user',
+        role: "user",
         content: `채용 사이트 크롤링을 시작합니다.
 
 URL: ${url}
@@ -277,13 +277,13 @@ URL: ${url}
 
     // ReAct 루프
     for (let step = 1; step <= MAX_STEPS && !this.state.done; step++) {
-      this.logger.log(`\n${'═'.repeat(70)}`);
+      this.logger.log(`\n${"═".repeat(70)}`);
       this.logger.log(`[Agent] Step ${step}/${MAX_STEPS}`);
-      this.logger.log(`${'═'.repeat(70)}`);
+      this.logger.log(`${"═".repeat(70)}`);
 
       // LLM 호출
       const response = await this.client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: agentTools,
@@ -291,25 +291,27 @@ URL: ${url}
       });
 
       // 응답 처리
-      if (response.stop_reason === 'tool_use') {
+      if (response.stop_reason === "tool_use") {
         // 사고 과정 (Thought) 출력 - 텍스트 블록이 있으면 출력
         const textBlock = response.content.find(
-          (block): block is Anthropic.Messages.TextBlock => block.type === 'text'
+          (block): block is Anthropic.Messages.TextBlock =>
+            block.type === "text"
         );
         if (textBlock) {
           this.logger.log(`\n[🧠 Thought]`);
-          this.logger.log(`${'-'.repeat(50)}`);
+          this.logger.log(`${"-".repeat(50)}`);
           this.logger.log(textBlock.text);
-          this.logger.log(`${'-'.repeat(50)}`);
+          this.logger.log(`${"-".repeat(50)}`);
         }
 
         // 도구 사용 요청
         const toolUseBlock = response.content.find(
-          (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use'
+          (block): block is Anthropic.Messages.ToolUseBlock =>
+            block.type === "tool_use"
         );
 
         if (!toolUseBlock) {
-          this.logger.log('[Agent] 도구 사용 블록을 찾을 수 없음');
+          this.logger.log("[Agent] 도구 사용 블록을 찾을 수 없음");
           break;
         }
 
@@ -341,9 +343,11 @@ URL: ${url}
         let result = await this.toolExecutor.execute(toolName, toolInput);
 
         // navigate 실패 시 재시도
-        if (toolName === 'navigate' && !result.success) {
+        if (toolName === "navigate" && !result.success) {
           for (let retry = 1; retry <= MAX_NAVIGATE_RETRIES; retry++) {
-            this.logger.log(`[🔄 재시도] navigate ${retry}/${MAX_NAVIGATE_RETRIES}...`);
+            this.logger.log(
+              `[🔄 재시도] navigate ${retry}/${MAX_NAVIGATE_RETRIES}...`
+            );
             await this.page.waitForTimeout(2000); // 재시도 전 대기
             result = await this.toolExecutor.execute(toolName, toolInput);
             if (result.success) {
@@ -353,7 +357,9 @@ URL: ${url}
           }
         }
 
-        this.logger.log(`\n[📤 Observation] ${result.success ? '✅ 성공' : '❌ 실패'}`);
+        this.logger.log(
+          `\n[📤 Observation] ${result.success ? "✅ 성공" : "❌ 실패"}`
+        );
         if (result.error) {
           this.logger.log(`[Error] ${result.error}`);
         }
@@ -363,33 +369,49 @@ URL: ${url}
           if (dataStr.length > 1000) {
             this.logger.log(`[Data] (길이: ${dataStr.length}자, 요약 출력)`);
             // PageInfo인 경우 주요 정보만 출력
-            if (toolName === 'get_page_info') {
+            if (toolName === "get_page_info") {
               const info = result.data as PageInfo;
               this.logger.log(`  - URL: ${info.url}`);
               this.logger.log(`  - Title: ${info.title}`);
-              this.logger.log(`  - 셀렉터 후보: ${info.selectorCandidates.length}개`);
+              this.logger.log(
+                `  - 셀렉터 후보: ${info.selectorCandidates.length}개`
+              );
               this.logger.log(`  - 직무 링크: ${info.jobLinks.length}개`);
               this.logger.log(`  - 버튼: ${info.visibleButtons.length}개`);
-              this.logger.log(`  - 페이지네이션: ${info.paginationInfo || '없음'}`);
-              this.logger.log(`  - 페이지네이션 타입: ${info.paginationType.type}`);
+              this.logger.log(
+                `  - 페이지네이션: ${info.paginationInfo || "없음"}`
+              );
+              this.logger.log(
+                `  - 페이지네이션 타입: ${info.paginationType.type}`
+              );
               if (info.paginationType.nextSelector) {
-                this.logger.log(`    └ Next 셀렉터: ${info.paginationType.nextSelector}`);
+                this.logger.log(
+                  `    └ Next 셀렉터: ${info.paginationType.nextSelector}`
+                );
               }
               if (info.paginationType.loadMoreSelector) {
-                this.logger.log(`    └ Load More 셀렉터: ${info.paginationType.loadMoreSelector}`);
+                this.logger.log(
+                  `    └ Load More 셀렉터: ${info.paginationType.loadMoreSelector}`
+                );
               }
               if (info.paginationType.urlPattern) {
-                this.logger.log(`    └ URL 패턴: ${info.paginationType.urlPattern}`);
+                this.logger.log(
+                  `    └ URL 패턴: ${info.paginationType.urlPattern}`
+                );
               }
-              this.logger.log(`  - 결과 수: ${info.resultCount || '표시 없음'}`);
+              this.logger.log(
+                `  - 결과 수: ${info.resultCount || "표시 없음"}`
+              );
               if (info.jobLinks.length > 0) {
                 this.logger.log(`  - 직무 링크 샘플:`);
                 info.jobLinks.slice(0, 3).forEach((link, i) => {
-                  this.logger.log(`    ${i + 1}. ${link.text.substring(0, 50)}`);
+                  this.logger.log(
+                    `    ${i + 1}. ${link.text.substring(0, 50)}`
+                  );
                 });
               }
             } else {
-              this.logger.log(dataStr.substring(0, 500) + '...');
+              this.logger.log(dataStr.substring(0, 500) + "...");
             }
           } else {
             this.logger.log(`[Data] ${dataStr}`);
@@ -397,7 +419,7 @@ URL: ${url}
         }
 
         // 특별 처리: scroll 결과 (무한 스크롤 종료 감지)
-        if (toolName === 'scroll' && result.success && result.data) {
+        if (toolName === "scroll" && result.success && result.data) {
           const scrollData = result.data as {
             currentPosition: number;
             maxPosition: number;
@@ -417,19 +439,19 @@ URL: ${url}
 
           // 페이지 끝 도달 감지
           if (scrollData.atBottom) {
-            this.logger.log('[📜 스크롤] 페이지 끝에 도달함');
+            this.logger.log("[📜 스크롤] 페이지 끝에 도달함");
           }
 
           // 연속 3회 스크롤해도 진전 없으면 경고
           if (this.state.consecutiveScrollNoProgress >= 3) {
             this.logger.log(
-              '[⚠️ 경고] 스크롤 3회 연속 진전 없음 - 무한 스크롤 종료 또는 로딩 지연 가능성'
+              "[⚠️ 경고] 스크롤 3회 연속 진전 없음 - 무한 스크롤 종료 또는 로딩 지연 가능성"
             );
           }
         }
 
         // 특별 처리: extract_jobs 결과
-        if (toolName === 'extract_jobs' && result.success && result.data) {
+        if (toolName === "extract_jobs" && result.success && result.data) {
           const data = result.data as { count: number; jobs: ExtractedJob[] };
           const newJobs = data.jobs.filter(
             (j) =>
@@ -453,15 +475,17 @@ URL: ${url}
 
           // 연속 실패 체크
           if (this.state.consecutiveNoNewJobs >= MAX_CONSECUTIVE_NO_NEW) {
-            this.logger.log('[Agent] 연속 3회 새 직무 없음, 자동 종료');
+            this.logger.log("[Agent] 연속 3회 새 직무 없음, 자동 종료");
             this.state.done = true;
           }
         }
 
         // 특별 처리: done
-        if (toolName === 'done') {
+        if (toolName === "done") {
           this.state.done = true;
-          this.logger.log(`[Agent] 완료: ${(result.data as { reason: string }).reason}`);
+          this.logger.log(
+            `[Agent] 완료: ${(result.data as { reason: string }).reason}`
+          );
         }
 
         // 스텝 기록 (thought 포함)
@@ -471,13 +495,13 @@ URL: ${url}
           thought: textBlock?.text,
           toolName,
           toolInput,
-          result: result.success ? 'success' : 'failed',
+          result: result.success ? "success" : "failed",
         };
         this.state.history.push(stepRecord);
 
         // 메시지에 응답 추가
         messages.push({
-          role: 'assistant',
+          role: "assistant",
           content: response.content,
         });
 
@@ -486,7 +510,30 @@ URL: ${url}
 
         if (!result.success && result.error) {
           // Reflexion 패턴: 도구 실패 시 반성 수행
-          const reflection = await this.reflect(toolName, toolInput, result.error);
+          const reflection = await this.reflect(
+            toolName,
+            toolInput,
+            result.error
+          );
+
+          // 실패 케이스 자동 기록
+          const failureCase = FailureCase.create({
+            timestamp: new Date(),
+            url: this.page.url(),
+            company: this.company,
+            toolName,
+            toolInput,
+            error: result.error,
+            pageContext: `Step ${step}, 수집된 직무: ${this.state.extractedJobs.length}개`,
+            reflection: {
+              analysis: reflection.analysis,
+              suggestion: reflection.suggestion,
+              shouldRetry: reflection.shouldRetry,
+              alternativeAction: reflection.alternativeAction,
+            },
+          });
+          await this.failureCaseStore.append(failureCase);
+          this.logger.log(`[📝 실패 기록] ${toolName} 실패 케이스 저장됨`);
 
           // 반성 결과를 도구 결과에 추가
           toolResultContent = JSON.stringify({
@@ -501,37 +548,42 @@ URL: ${url}
         }
 
         messages.push({
-          role: 'user',
+          role: "user",
           content: [
             {
-              type: 'tool_result',
+              type: "tool_result",
               tool_use_id: toolUseBlock.id,
               content: toolResultContent,
             },
           ],
         });
-      } else if (response.stop_reason === 'end_turn') {
+      } else if (response.stop_reason === "end_turn") {
         // 텍스트 응답만 있는 경우
         const textBlock = response.content.find(
-          (block): block is Anthropic.Messages.TextBlock => block.type === 'text'
+          (block): block is Anthropic.Messages.TextBlock =>
+            block.type === "text"
         );
 
         if (textBlock) {
-          this.logger.log(`[Agent] 메시지: ${textBlock.text.substring(0, 200)}...`);
+          this.logger.log(
+            `[Agent] 메시지: ${textBlock.text.substring(0, 200)}...`
+          );
         }
 
         // 대화 계속
         messages.push({
-          role: 'assistant',
+          role: "assistant",
           content: response.content,
         });
 
         messages.push({
-          role: 'user',
-          content: '계속해서 직무를 수집해주세요. 도구를 사용하세요.',
+          role: "user",
+          content: "계속해서 직무를 수집해주세요. 도구를 사용하세요.",
         });
       } else {
-        this.logger.log(`[Agent] 예상치 못한 stop_reason: ${response.stop_reason}`);
+        this.logger.log(
+          `[Agent] 예상치 못한 stop_reason: ${response.stop_reason}`
+        );
         break;
       }
     }
@@ -556,13 +608,13 @@ URL: ${url}
     const checkpointPath = await this.checkpointStore.save(this.checkpoint);
 
     // 결과 변환 및 요약 출력
-    this.logger.log(`\n${'═'.repeat(70)}`);
+    this.logger.log(`\n${"═".repeat(70)}`);
     this.logger.log(`[Agent] 크롤링 완료!`);
-    this.logger.log(`${'═'.repeat(70)}`);
+    this.logger.log(`${"═".repeat(70)}`);
     this.logger.log(this.checkpoint.generateSummary());
     this.logger.log(`\n체크포인트 저장: ${checkpointPath}`);
     this.logger.log(`로그 파일: ${this.logger.getLogFile()}`);
-    this.logger.log(`${'═'.repeat(70)}`);
+    this.logger.log(`${"═".repeat(70)}`);
     this.logger.close();
 
     return this.state.extractedJobs.map((job) =>
@@ -609,20 +661,20 @@ URL: ${url}
     try {
       // LLM 호출하여 반성 수행
       const response = await this.client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         system: `당신은 웹 크롤링 전문가입니다. 도구 실행 실패를 분석하고 대안 전략을 제시해주세요.
 반드시 JSON 형식으로만 응답하세요.`,
-        messages: [{ role: 'user', content: reflectionPrompt }],
+        messages: [{ role: "user", content: reflectionPrompt }],
       });
 
       // 응답 파싱
       const textBlock = response.content.find(
-        (block): block is Anthropic.Messages.TextBlock => block.type === 'text'
+        (block): block is Anthropic.Messages.TextBlock => block.type === "text"
       );
 
       if (!textBlock) {
-        throw new Error('반성 응답에 텍스트가 없습니다');
+        throw new Error("반성 응답에 텍스트가 없습니다");
       }
 
       // JSON 추출 (코드블록 내부 또는 전체 텍스트)
@@ -635,8 +687,8 @@ URL: ${url}
       const parsed = JSON.parse(jsonStr);
 
       const result = ReflectionResult.create({
-        analysis: parsed.analysis || '분석 실패',
-        suggestion: parsed.suggestion || '기본 재시도',
+        analysis: parsed.analysis || "분석 실패",
+        suggestion: parsed.suggestion || "기본 재시도",
         shouldRetry: parsed.shouldRetry ?? true,
         alternativeAction: parsed.alternativeAction,
       });
@@ -644,7 +696,7 @@ URL: ${url}
       this.logger.log(`[🔍 Reflection] 분석 완료`);
       this.logger.log(`  - 원인: ${result.analysis}`);
       this.logger.log(`  - 제안: ${result.suggestion}`);
-      this.logger.log(`  - 재시도: ${result.shouldRetry ? '예' : '아니오'}`);
+      this.logger.log(`  - 재시도: ${result.shouldRetry ? "예" : "아니오"}`);
       if (result.alternativeAction) {
         this.logger.log(`  - 대안 도구: ${result.alternativeAction.toolName}`);
       }
@@ -656,7 +708,7 @@ URL: ${url}
       // 파싱 실패 시 기본 결과 반환
       return ReflectionResult.create({
         analysis: `${toolName} 도구 실행 실패: ${error}`,
-        suggestion: '다른 셀렉터나 방법을 시도하세요',
+        suggestion: "다른 셀렉터나 방법을 시도하세요",
         shouldRetry: true,
       });
     }
@@ -673,12 +725,16 @@ URL: ${url}
     }
 
     if (!checkpoint.canResume()) {
-      throw new Error(`이 체크포인트는 재개할 수 없습니다. 상태: ${checkpoint.status}`);
+      throw new Error(
+        `이 체크포인트는 재개할 수 없습니다. 상태: ${checkpoint.status}`
+      );
     }
 
     this.logger.log(`[Agent] 체크포인트에서 재개: ${checkpointPath}`);
     this.logger.log(`[Agent] 이전 세션 ID: ${checkpoint.sessionId}`);
-    this.logger.log(`[Agent] 이전에 수집된 직무: ${checkpoint.extractedJobs.length}개`);
+    this.logger.log(
+      `[Agent] 이전에 수집된 직무: ${checkpoint.extractedJobs.length}개`
+    );
 
     if (checkpoint.resumeHint) {
       this.logger.log(`[Agent] 재개 힌트: ${checkpoint.resumeHint}`);
@@ -700,7 +756,9 @@ URL: ${url}
    * 회사명으로 최신 체크포인트 찾아서 재개
    */
   async resumeByCompany(): Promise<JobPosting[] | null> {
-    const checkpoint = await this.checkpointStore.findLatestByCompany(this.company);
+    const checkpoint = await this.checkpointStore.findLatestByCompany(
+      this.company
+    );
 
     if (!checkpoint || !checkpoint.canResume()) {
       this.logger.log(`[Agent] 재개 가능한 체크포인트가 없습니다.`);
@@ -709,7 +767,9 @@ URL: ${url}
 
     this.logger.log(`[Agent] 최신 체크포인트 발견: ${checkpoint.sessionId}`);
     return this.resume(
-      `.cache/checkpoints/${this.company.toLowerCase().replace(/[^a-z0-9가-힣]/g, '_')}_${checkpoint.sessionId}.json`
+      `.cache/checkpoints/${this.company
+        .toLowerCase()
+        .replace(/[^a-z0-9가-힣]/g, "_")}_${checkpoint.sessionId}.json`
     );
   }
 
