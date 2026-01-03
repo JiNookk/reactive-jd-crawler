@@ -11,6 +11,7 @@ import { CrawlerAgent } from "../infra/agent/crawlerAgent.js";
 import { JsonWriter } from "../infra/output/jsonWriter.js";
 import { CsvWriter } from "../infra/output/csvWriter.js";
 import { CrawlResult } from "../app/services/crawlerOrchestrator.js";
+import { CheckpointStore } from "../infra/cache/checkpointStore.js";
 
 type CrawlMode = "fast" | "agent";
 type OutputFormat = "json" | "csv";
@@ -24,6 +25,8 @@ interface CliArgs {
   includeDetails: boolean;
   mode: CrawlMode;
   format: OutputFormat;
+  resume?: string; // 체크포인트 경로 또는 'auto'
+  listCheckpoints: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -38,6 +41,8 @@ function parseArgs(): CliArgs {
     includeDetails: false,
     mode: "fast",
     format: "json",
+    resume: undefined,
+    listCheckpoints: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -65,6 +70,10 @@ function parseArgs(): CliArgs {
       if (formatValue === "json" || formatValue === "csv") {
         result.format = formatValue;
       }
+    } else if (arg === "--resume" || arg === "-r") {
+      result.resume = args[++i] || "auto";
+    } else if (arg === "--list-checkpoints") {
+      result.listCheckpoints = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -86,7 +95,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   pnpm crawl --url <url> --company <company> [options]
 
 옵션:
-  -u, --url <url>         크롤링할 채용 페이지 URL (필수)
+  -u, --url <url>         크롤링할 채용 페이지 URL (필수, --resume 사용 시 생략 가능)
   -c, --company <company> 회사명 (필수)
   -m, --max-pages <n>     최대 페이지 수 (기본: 1, 0=무제한, fast 모드만)
   -d, --details           상세 페이지도 크롤링 (JD 전문 수집, fast 모드만)
@@ -94,6 +103,8 @@ JD Crawler - 범용 채용 사이트 크롤러
   -f, --format <format>   출력 형식: json(기본) | csv
   -o, --output <dir>      출력 디렉토리 (기본: ./output)
   --no-headless           브라우저 UI 표시
+  -r, --resume <path>     체크포인트에서 재개 (agent 모드만, 'auto'=최신 자동 선택)
+  --list-checkpoints      재개 가능한 체크포인트 목록 표시
   -h, --help              도움말 표시
 
 모드 설명:
@@ -114,14 +125,28 @@ JD Crawler - 범용 채용 사이트 크롤러
 async function crawl(args: CliArgs) {
   switch (args.mode) {
     case "agent": {
-      console.log("Agent 모드로 크롤링 시작...\n");
-
       const browser = await chromium.launch({ headless: args.headless });
       const page = await browser.newPage();
 
       try {
         const agent = new CrawlerAgent(page, args.company);
-        const jobs = await agent.run(args.url);
+        let jobs;
+
+        if (args.resume) {
+          console.log("체크포인트에서 세션 재개 중...\n");
+          if (args.resume === "auto") {
+            const resumedJobs = await agent.resumeByCompany();
+            if (!resumedJobs) {
+              throw new Error("재개할 체크포인트를 찾을 수 없습니다.");
+            }
+            jobs = resumedJobs;
+          } else {
+            jobs = await agent.resume(args.resume);
+          }
+        } else {
+          console.log("Agent 모드로 크롤링 시작...\n");
+          jobs = await agent.run(args.url);
+        }
 
         const result = {
           company: args.company,
@@ -160,19 +185,43 @@ async function crawl(args: CliArgs) {
 
 async function main(): Promise<void> {
   const args = parseArgs();
+  const checkpointStore = new CheckpointStore();
 
-  // 유효성 검사
-  if (!args.url) {
-    console.error("에러: URL이 필요합니다. --help로 사용법을 확인하세요.");
+  // --list-checkpoints 명령 처리
+  if (args.listCheckpoints) {
+    const checkpoints = await checkpointStore.listResumable();
+    if (checkpoints.length === 0) {
+      console.log("재개 가능한 체크포인트가 없습니다.");
+    } else {
+      console.log("재개 가능한 체크포인트:");
+      checkpoints.forEach((cp, i) => {
+        console.log(`  ${i + 1}. ${cp.company} (${cp.status}, ${cp.jobCount}개 수집)`);
+        console.log(`     경로: ${cp.path}`);
+      });
+    }
+    process.exit(0);
+  }
+
+  // --resume 옵션은 agent 모드에서만 사용 가능
+  if (args.resume && args.mode !== "agent") {
+    console.error("에러: --resume 옵션은 agent 모드에서만 사용 가능합니다.");
     process.exit(1);
   }
+
+  // 유효성 검사 (--resume 사용 시 URL과 회사명은 체크포인트에서 가져옴)
+  if (!args.resume) {
+    if (!args.url) {
+      console.error("에러: URL이 필요합니다. --help로 사용법을 확인하세요.");
+      process.exit(1);
+    }
+    if (!args.company) {
+      console.error("에러: 회사명이 필요합니다. --help로 사용법을 확인하세요.");
+      process.exit(1);
+    }
+  }
+
   if (!args.mode) {
     console.error("에러: 모드가 필요합니다. --help로 사용법을 확인하세요.");
-    process.exit(1);
-  }
-
-  if (!args.company) {
-    console.error("에러: 회사명이 필요합니다. --help로 사용법을 확인하세요.");
     process.exit(1);
   }
 
@@ -181,7 +230,38 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`
+  // --resume 모드일 경우 체크포인트에서 정보 로드
+  if (args.resume) {
+    let checkpoint;
+    if (args.resume === "auto") {
+      // 가장 최근 체크포인트 자동 선택
+      const checkpoints = await checkpointStore.listResumable();
+      if (checkpoints.length === 0) {
+        console.error("에러: 재개 가능한 체크포인트가 없습니다.");
+        process.exit(1);
+      }
+      checkpoint = await checkpointStore.load(checkpoints[0]!.path);
+    } else {
+      checkpoint = await checkpointStore.load(args.resume);
+    }
+
+    if (!checkpoint) {
+      console.error("에러: 체크포인트를 로드할 수 없습니다.");
+      process.exit(1);
+    }
+
+    args.url = checkpoint.url;
+    args.company = checkpoint.company;
+
+    console.log(`
+╔════════════════════════════════════════════════════════════╗
+║              JD Crawler - 세션 재개                         ║
+╚════════════════════════════════════════════════════════════╝
+
+${checkpoint.generateSummary()}
+`);
+  } else {
+    console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                    JD Crawler POC                          ║
 ╚════════════════════════════════════════════════════════════╝
@@ -199,6 +279,7 @@ ${
 Headless: ${args.headless}
 출력 디렉토리: ${args.output}
 `);
+  }
 
   try {
     const startTime = Date.now();

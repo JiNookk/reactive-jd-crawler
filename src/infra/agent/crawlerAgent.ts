@@ -1,4 +1,4 @@
-// ReAct 패턴 기반 크롤러 Agent (Reflexion 패턴 적용)
+// ReAct 패턴 기반 크롤러 Agent (Reflexion + Checkpoint 패턴 적용)
 import Anthropic from '@anthropic-ai/sdk';
 import { Page } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,6 +12,8 @@ import {
   ReflectionResult,
   ReflectionPromptBuilder,
 } from '../../domain/reflection.domain.js';
+import { AgentCheckpoint } from '../../domain/checkpoint.domain.js';
+import { CheckpointStore } from '../cache/checkpointStore.js';
 
 // 로거 클래스 - 콘솔과 파일 동시 출력
 class AgentLogger {
@@ -205,6 +207,9 @@ export class CrawlerAgent {
   private toolExecutor: ToolExecutor;
   private state: AgentState;
   private logger: AgentLogger;
+  private checkpointStore: CheckpointStore;
+  private checkpoint: AgentCheckpoint;
+  private sessionId: string;
 
   constructor(
     private page: Page,
@@ -216,6 +221,14 @@ export class CrawlerAgent {
     });
     this.toolExecutor = new ToolExecutor(page, company);
     this.logger = new AgentLogger(company);
+    this.checkpointStore = new CheckpointStore();
+    this.sessionId = uuidv4().slice(0, 8);
+    this.checkpoint = AgentCheckpoint.create({
+      sessionId: this.sessionId,
+      url: '',
+      company,
+      createdAt: new Date(),
+    });
     this.state = {
       url: '',
       company,
@@ -234,8 +247,17 @@ export class CrawlerAgent {
   async run(url: string): Promise<JobPosting[]> {
     this.state.url = url;
 
+    // 체크포인트 URL 업데이트
+    this.checkpoint = AgentCheckpoint.create({
+      sessionId: this.sessionId,
+      url,
+      company: this.company,
+      createdAt: new Date(),
+    });
+
     // 페이지 로드
     this.logger.log(`[Agent] 페이지 로드 중: ${url}`);
+    this.logger.log(`[Agent] 세션 ID: ${this.sessionId}`);
     await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
     await this.page.waitForTimeout(3000);
 
@@ -514,10 +536,32 @@ URL: ${url}
       }
     }
 
-    // 결과 변환
+    // 체크포인트 업데이트 및 저장
+    this.checkpoint = this.checkpoint
+      .addExtractedJobs(this.state.extractedJobs)
+      .complete(new Date());
+
+    // 체크포인트에 히스토리 추가
+    for (const step of this.state.history) {
+      this.checkpoint = this.checkpoint.addHistoryItem({
+        step: step.step,
+        toolName: step.toolName,
+        toolInput: step.toolInput,
+        result: step.result,
+        thought: step.thought,
+        observation: step.observation,
+      });
+    }
+
+    const checkpointPath = await this.checkpointStore.save(this.checkpoint);
+
+    // 결과 변환 및 요약 출력
     this.logger.log(`\n${'═'.repeat(70)}`);
-    this.logger.log(`[Agent] 크롤링 완료. 총 ${this.state.extractedJobs.length}개 직무 수집`);
-    this.logger.log(`[Agent] 로그 파일: ${this.logger.getLogFile()}`);
+    this.logger.log(`[Agent] 크롤링 완료!`);
+    this.logger.log(`${'═'.repeat(70)}`);
+    this.logger.log(this.checkpoint.generateSummary());
+    this.logger.log(`\n체크포인트 저장: ${checkpointPath}`);
+    this.logger.log(`로그 파일: ${this.logger.getLogFile()}`);
     this.logger.log(`${'═'.repeat(70)}`);
     this.logger.close();
 
@@ -616,6 +660,64 @@ URL: ${url}
         shouldRetry: true,
       });
     }
+  }
+
+  /**
+   * 체크포인트에서 세션 재개
+   */
+  async resume(checkpointPath: string): Promise<JobPosting[]> {
+    const checkpoint = await this.checkpointStore.load(checkpointPath);
+
+    if (!checkpoint) {
+      throw new Error(`체크포인트를 찾을 수 없습니다: ${checkpointPath}`);
+    }
+
+    if (!checkpoint.canResume()) {
+      throw new Error(`이 체크포인트는 재개할 수 없습니다. 상태: ${checkpoint.status}`);
+    }
+
+    this.logger.log(`[Agent] 체크포인트에서 재개: ${checkpointPath}`);
+    this.logger.log(`[Agent] 이전 세션 ID: ${checkpoint.sessionId}`);
+    this.logger.log(`[Agent] 이전에 수집된 직무: ${checkpoint.extractedJobs.length}개`);
+
+    if (checkpoint.resumeHint) {
+      this.logger.log(`[Agent] 재개 힌트: ${checkpoint.resumeHint}`);
+    }
+
+    // 이전 상태 복원
+    this.state.extractedJobs = checkpoint.extractedJobs.map((j) => ({
+      title: j.title,
+      location: j.location,
+      department: j.department,
+      detailUrl: j.detailUrl,
+    }));
+
+    // 새 세션으로 시작하되, 이전 직무는 유지
+    return this.run(checkpoint.url);
+  }
+
+  /**
+   * 회사명으로 최신 체크포인트 찾아서 재개
+   */
+  async resumeByCompany(): Promise<JobPosting[] | null> {
+    const checkpoint = await this.checkpointStore.findLatestByCompany(this.company);
+
+    if (!checkpoint || !checkpoint.canResume()) {
+      this.logger.log(`[Agent] 재개 가능한 체크포인트가 없습니다.`);
+      return null;
+    }
+
+    this.logger.log(`[Agent] 최신 체크포인트 발견: ${checkpoint.sessionId}`);
+    return this.resume(
+      `.cache/checkpoints/${this.company.toLowerCase().replace(/[^a-z0-9가-힣]/g, '_')}_${checkpoint.sessionId}.json`
+    );
+  }
+
+  /**
+   * 현재 체크포인트 반환
+   */
+  getCheckpoint(): AgentCheckpoint {
+    return this.checkpoint;
   }
 
   // 상태 반환 (디버깅용)
