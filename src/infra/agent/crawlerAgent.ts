@@ -12,6 +12,8 @@ import {
   ReflectionResult,
   ReflectionPromptBuilder,
 } from '../../domain/reflection.domain.js';
+import { FailureCase } from '../../domain/failureCase.domain.js';
+import { FailureCaseStore } from '../cache/failureCaseStore.js';
 
 // 로거 클래스 - 콘솔과 파일 동시 출력
 class AgentLogger {
@@ -205,6 +207,7 @@ export class CrawlerAgent {
   private toolExecutor: ToolExecutor;
   private state: AgentState;
   private logger: AgentLogger;
+  private failureCaseStore: FailureCaseStore;
 
   constructor(
     private page: Page,
@@ -216,6 +219,7 @@ export class CrawlerAgent {
     });
     this.toolExecutor = new ToolExecutor(page, company);
     this.logger = new AgentLogger(company);
+    this.failureCaseStore = new FailureCaseStore();
     this.state = {
       url: '',
       company,
@@ -465,6 +469,25 @@ URL: ${url}
         if (!result.success && result.error) {
           // Reflexion 패턴: 도구 실패 시 반성 수행
           const reflection = await this.reflect(toolName, toolInput, result.error);
+
+          // 실패 케이스 자동 기록
+          const failureCase = FailureCase.create({
+            timestamp: new Date(),
+            url: this.page.url(),
+            company: this.company,
+            toolName,
+            toolInput,
+            error: result.error,
+            pageContext: `Step ${step}, 수집된 직무: ${this.state.extractedJobs.length}개`,
+            reflection: {
+              analysis: reflection.analysis,
+              suggestion: reflection.suggestion,
+              shouldRetry: reflection.shouldRetry,
+              alternativeAction: reflection.alternativeAction,
+            },
+          });
+          await this.failureCaseStore.append(failureCase);
+          this.logger.log(`[📝 실패 기록] ${toolName} 실패 케이스 저장됨`);
 
           // 반성 결과를 도구 결과에 추가
           toolResultContent = JSON.stringify({

@@ -11,6 +11,7 @@ import { CrawlerAgent } from "../infra/agent/crawlerAgent.js";
 import { JsonWriter } from "../infra/output/jsonWriter.js";
 import { CsvWriter } from "../infra/output/csvWriter.js";
 import { CrawlResult } from "../app/services/crawlerOrchestrator.js";
+import { FailureCaseStore } from "../infra/cache/failureCaseStore.js";
 
 type CrawlMode = "fast" | "agent";
 type OutputFormat = "json" | "csv";
@@ -24,6 +25,7 @@ interface CliArgs {
   includeDetails: boolean;
   mode: CrawlMode;
   format: OutputFormat;
+  failureStats: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -38,6 +40,7 @@ function parseArgs(): CliArgs {
     includeDetails: false,
     mode: "fast",
     format: "json",
+    failureStats: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -65,6 +68,8 @@ function parseArgs(): CliArgs {
       if (formatValue === "json" || formatValue === "csv") {
         result.format = formatValue;
       }
+    } else if (arg === "--failure-stats") {
+      result.failureStats = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -94,6 +99,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   -f, --format <format>   출력 형식: json(기본) | csv
   -o, --output <dir>      출력 디렉토리 (기본: ./output)
   --no-headless           브라우저 UI 표시
+  --failure-stats         실패 케이스 통계 표시
   -h, --help              도움말 표시
 
 모드 설명:
@@ -160,6 +166,39 @@ async function crawl(args: CliArgs) {
 
 async function main(): Promise<void> {
   const args = parseArgs();
+
+  // --failure-stats 명령 처리
+  if (args.failureStats) {
+    const store = new FailureCaseStore();
+    const stats = await store.getStats();
+
+    console.log(`
+╔════════════════════════════════════════════════════════════╗
+║                  실패 케이스 통계                           ║
+╚════════════════════════════════════════════════════════════╝
+
+총 실패 케이스: ${stats.total}개
+해결됨: ${stats.resolved}개
+미해결: ${stats.unresolved}개
+해결률: ${(stats.resolutionRate * 100).toFixed(1)}%
+
+도구별 실패 횟수:`);
+    for (const [tool, count] of Object.entries(stats.byTool)) {
+      console.log(`  - ${tool}: ${count}회`);
+    }
+
+    console.log(`
+회사별 실패 횟수:`);
+    for (const [company, count] of Object.entries(stats.byCompany)) {
+      console.log(`  - ${company}: ${count}회`);
+    }
+
+    if (stats.total === 0) {
+      console.log("\n아직 기록된 실패 케이스가 없습니다.");
+    }
+
+    process.exit(0);
+  }
 
   // 유효성 검사
   if (!args.url) {
