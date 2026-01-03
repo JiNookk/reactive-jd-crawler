@@ -44,16 +44,16 @@ function parseArgs(): CliArgs {
     } else if (arg === '--csv') {
       result.csv = true;
     } else if (arg === '--limit' || arg === '-l') {
-      const limitValue = parseInt(args[++i], 10);
+      const limitValue = parseInt(args[++i] ?? '', 10);
       if (!isNaN(limitValue) && limitValue > 0) {
         result.limit = limitValue;
       }
     } else if (arg === '--output' || arg === '-o') {
-      result.output = args[++i] || './output';
+      result.output = args[++i] ?? './output';
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
-    } else if (!arg?.startsWith('-')) {
+    } else if (arg && !arg.startsWith('-')) {
       // 위치 인자로 회사명 처리
       result.companies.push(arg);
     }
@@ -199,6 +199,7 @@ interface CompanyRatingSummary {
 
 interface EnrichedJson {
   [key: string]: unknown;
+  jobs?: any[];
   companyRatings: {
     queriedAt: string;
     summary: {
@@ -230,24 +231,9 @@ async function enrichJsonWithRatings(
   const content = await fs.promises.readFile(filePath, 'utf-8');
   const data = JSON.parse(content);
 
-  // 회사명 → 검색용 키 변환
-  // 1. 괄호 안에 영문명이 있으면 영문명 사용 (예: "루닛(Lunit)" → "Lunit")
-  // 2. 괄호 안에 한글이 있으면 괄호 앞 부분 사용 (예: "페이타랩(패스오더)" → "페이타랩")
-  // 3. 괄호 없으면 그대로 사용
+  // 회사명 → 검색용 키 변환 (괄호와 내용 제거)
   const getSearchKey = (companyName: string): string => {
-    // 괄호 안 영문명 추출 시도
-    const englishMatch = companyName.match(/\(([A-Za-z][A-Za-z0-9\s]*)\)/);
-    if (englishMatch) {
-      return englishMatch[1].trim();
-    }
-
-    // 괄호가 있으면 괄호 앞 부분만 사용
-    const parenIndex = companyName.indexOf('(');
-    if (parenIndex > 0) {
-      return companyName.substring(0, parenIndex).trim();
-    }
-
-    return companyName;
+    return companyName.replace(/\([^)]*\)/g, '').trim();
   };
 
   // 회사 목록 추출 (중복 제거)

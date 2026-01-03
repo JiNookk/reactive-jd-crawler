@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // CLI 진입점
 import 'dotenv/config';
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-extra';
+import stealth from 'puppeteer-extra-plugin-stealth';
+
+// stealth 플러그인 적용 (봇 탐지 우회)
+chromium.use(stealth());
 import { CrawlerOrchestrator } from '../app/services/crawlerOrchestrator.js';
 import { CrawlerAgent } from '../infra/agent/crawlerAgent.js';
 import { JsonWriter } from '../infra/output/jsonWriter.js';

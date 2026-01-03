@@ -1,5 +1,10 @@
-// Playwright를 사용한 페이지 로드
-import { chromium, Browser, Page, BrowserContext } from 'playwright';
+// Playwright를 사용한 페이지 로드 (stealth 모드 적용)
+import { chromium } from 'playwright-extra';
+import stealth from 'puppeteer-extra-plugin-stealth';
+import { Browser, Page, BrowserContext } from 'playwright';
+
+// stealth 플러그인 적용 (봇 탐지 우회)
+chromium.use(stealth());
 
 export interface FetchedPage {
   url: string;
@@ -41,6 +46,11 @@ export class PageFetcher {
     this.context = await this.browser.newContext({
       userAgent: this.options.userAgent,
       viewport: { width: 1920, height: 1080 },
+      locale: 'ko-KR',
+      timezoneId: 'Asia/Seoul',
+      // 추가 anti-detection 설정
+      javaScriptEnabled: true,
+      bypassCSP: true,
     });
   }
 
