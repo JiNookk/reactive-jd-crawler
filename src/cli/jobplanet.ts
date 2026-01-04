@@ -3,6 +3,7 @@
 
 import 'dotenv/config';
 import { JobplanetScraper, JobplanetSearchResult } from '../infra/scraper/jobplanetScraper.js';
+import { CompanyRating } from '../domain/companyRating.domain.js';
 import * as fs from 'fs';
 
 interface CliArgs {
@@ -17,9 +18,9 @@ interface CsvRow {
 }
 
 interface JobplanetRating {
-  overallRating: number;
-  reviewCount: number;
-  ratingLevel: string;
+  overallRating: number | null;
+  reviewCount: number | null;
+  ratingLevel: string | null;
   categoryRatings?: {
     workLifeBalance?: number;
     careerGrowth?: number;
@@ -27,7 +28,7 @@ interface JobplanetRating {
     companyCulture?: number;
     management?: number;
   };
-  sourceUrl: string;
+  sourceUrl: string | null;
 }
 
 function parseArgs(): CliArgs {
@@ -198,12 +199,7 @@ function generateCsv(rows: CsvRow[]): string {
 
 // 회사명 → 검색용 키 변환
 function getSearchKey(companyName: string): string {
-  return companyName
-    .replace(/\([^)]*\)/g, '')
-    .replace(/주식회사|유한회사|유한책임회사/g, '')
-    .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return CompanyRating.toSearchQuery(companyName);
 }
 
 async function processCsvFile(
@@ -392,15 +388,15 @@ function updateRowsWithRatings(
       if (!row) continue;
 
       if (rating) {
-        row['잡플래닛평점'] = String(rating.overallRating);
-        row['잡플래닛리뷰수'] = String(rating.reviewCount);
-        row['잡플래닛평점레벨'] = rating.ratingLevel;
+        row['잡플래닛평점'] = rating.overallRating !== null ? String(rating.overallRating) : '';
+        row['잡플래닛리뷰수'] = rating.reviewCount !== null ? String(rating.reviewCount) : '';
+        row['잡플래닛평점레벨'] = rating.ratingLevel || '';
         row['잡플래닛워라밸'] = rating.categoryRatings?.workLifeBalance?.toString() || '';
         row['잡플래닛커리어성장'] = rating.categoryRatings?.careerGrowth?.toString() || '';
         row['잡플래닛보상복리후생'] = rating.categoryRatings?.compensation?.toString() || '';
         row['잡플래닛회사문화'] = rating.categoryRatings?.companyCulture?.toString() || '';
         row['잡플래닛경영진'] = rating.categoryRatings?.management?.toString() || '';
-        row['잡플래닛URL'] = rating.sourceUrl;
+        row['잡플래닛URL'] = rating.sourceUrl || '';
       } else if (notFoundSet.has(searchKey)) {
         row['잡플래닛평점'] = 'N/A';
         row['잡플래닛리뷰수'] = '';
@@ -428,7 +424,7 @@ function formatRating(result: JobplanetSearchResult): string {
   let output = `
 ${levelEmoji} ${r.companyName}
    전체 평점: ${r.overallRating}/5 (${level})
-   리뷰 수: ${r.reviewCount.toLocaleString()}개`;
+   리뷰 수: ${r.reviewCount !== null ? r.reviewCount.toLocaleString() : '정보 없음'}개`;
 
   if (r.categoryRatings) {
     const cats = r.categoryRatings;

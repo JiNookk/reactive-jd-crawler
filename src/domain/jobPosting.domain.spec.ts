@@ -12,6 +12,7 @@ describe('JobPosting 도메인', () => {
       const job = JobPosting.create({
         id,
         title: 'Senior Software Engineer',
+        sourcePlatform: 'Booking',
         company: 'Booking.com',
         sourceUrl: 'https://jobs.booking.com/booking/jobs/12345',
         crawledAt: now,
@@ -33,6 +34,7 @@ describe('JobPosting 도메인', () => {
       const job = JobPosting.create({
         id: 'job-002',
         title: 'Backend Developer',
+        sourcePlatform: 'Tencent',
         company: 'Tencent',
         sourceUrl: 'https://careers.tencent.com/jobs/123',
         crawledAt: now,
@@ -66,6 +68,7 @@ describe('JobPosting 도메인', () => {
         JobPosting.create({
           id: 'job-003',
           title: '',
+          sourcePlatform: 'Booking',
           company: 'Booking.com',
           sourceUrl: 'https://jobs.booking.com/jobs/123',
           crawledAt: now,
@@ -82,6 +85,7 @@ describe('JobPosting 도메인', () => {
         JobPosting.create({
           id: 'job-004',
           title: 'Developer',
+          sourcePlatform: 'Booking',
           company: '',
           sourceUrl: 'https://jobs.booking.com/jobs/123',
           crawledAt: now,
@@ -98,6 +102,7 @@ describe('JobPosting 도메인', () => {
         JobPosting.create({
           id: 'job-005',
           title: 'Developer',
+          sourcePlatform: 'Booking',
           company: 'Booking.com',
           sourceUrl: 'not-a-valid-url',
           crawledAt: now,
@@ -113,6 +118,7 @@ describe('JobPosting 도메인', () => {
       const job = JobPosting.create({
         id: 'job-001',
         title: 'Senior Software Engineer',
+        sourcePlatform: 'Booking',
         company: 'Booking.com',
         sourceUrl: 'https://jobs.booking.com/booking/jobs/12345',
         crawledAt: now,

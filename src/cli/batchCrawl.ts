@@ -135,7 +135,7 @@ async function crawlSingle(
     if (mode === 'fast') {
       const crawler = new CrawlerOrchestrator({ headless });
       const result = await crawler.crawl(row.url, {
-        company: row.company,
+        sourcePlatform: row.company,
         maxPages: 1,
         includeDetails: false,
       });

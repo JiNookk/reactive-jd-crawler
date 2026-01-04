@@ -70,13 +70,28 @@ export class CrawlerOrchestrator {
       console.log(`[Fetcher] 페이지 로드 중: ${url}`);
       const page = await this.fetcher.getPage();
 
-      await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
-      });
+      // 페이지 로드 (networkidle이 안되면 domcontentloaded로 폴백)
+      let usedFallback = false;
+      try {
+        await page.goto(url, {
+          waitUntil: 'networkidle',
+          timeout: 30000,
+        });
+      } catch (e) {
+        if ((e as Error).message?.includes('Timeout')) {
+          console.log('[Fetcher] networkidle 타임아웃, domcontentloaded로 재시도...');
+          await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
+          });
+          usedFallback = true;
+        } else {
+          throw e;
+        }
+      }
 
-      // 동적 콘텐츠 로드 대기
-      await page.waitForTimeout(2000);
+      // 동적 콘텐츠 로드 대기 (폴백 시 더 오래 대기)
+      await page.waitForTimeout(usedFallback ? 5000 : 2000);
 
       const currentUrl = page.url();
 
@@ -405,15 +420,34 @@ export class CrawlerOrchestrator {
       // URL 파라미터 방식
       const currentUrl = new URL(page.url());
       const paramStart = pagination.paramStart ?? 1;
-      const nextPageValue = paramStart + targetPage - 1;
+      const increment = (pagination as any).increment ?? 1; // 증분값 (기본: 1)
+
+      // increment가 1이면: paramStart + (targetPage - 1) → 1, 2, 3, ...
+      // increment가 40이면: paramStart + (targetPage - 1) * 40 → 0, 40, 80, ...
+      const nextPageValue = paramStart + (targetPage - 1) * increment;
 
       currentUrl.searchParams.set(pagination.paramName, String(nextPageValue));
 
-      await page.goto(currentUrl.toString(), {
-        waitUntil: 'networkidle',
-        timeout: 30000,
-      });
-      await page.waitForTimeout(2000);
+      // 페이지 로드 (networkidle이 안되면 domcontentloaded로 폴백)
+      let usedFallback = false;
+      try {
+        await page.goto(currentUrl.toString(), {
+          waitUntil: 'networkidle',
+          timeout: 30000,
+        });
+      } catch (e) {
+        if ((e as Error).message?.includes('Timeout')) {
+          console.log('[Pagination] networkidle 타임아웃, domcontentloaded로 재시도...');
+          await page.goto(currentUrl.toString(), {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
+          });
+          usedFallback = true;
+        } else {
+          throw e;
+        }
+      }
+      await page.waitForTimeout(usedFallback ? 4000 : 2000);
       return true;
     }
 
@@ -447,12 +481,28 @@ export class CrawlerOrchestrator {
 
         const page = await this.fetcher.getPage();
 
-        await page.goto(detailUrl, {
-          waitUntil: 'networkidle',
-          timeout: 30000,
-        });
+        // 페이지 로드 (networkidle이 안되면 domcontentloaded로 폴백)
+        let usedFallback = false;
+        try {
+          await page.goto(detailUrl, {
+            waitUntil: 'networkidle',
+            timeout: 30000,
+          });
+        } catch (e) {
+          if ((e as Error).message?.includes('Timeout')) {
+            console.log('[Detail] networkidle 타임아웃, domcontentloaded로 재시도...');
+            await page.goto(detailUrl, {
+              waitUntil: 'domcontentloaded',
+              timeout: 30000,
+            });
+            usedFallback = true;
+          } else {
+            throw e;
+          }
+        }
 
-        await page.waitForTimeout(1500);
+        // 동적 콘텐츠 로드 대기 (폴백 시 더 오래 대기)
+        await page.waitForTimeout(usedFallback ? 3000 : 1500);
 
         const currentUrl = page.url();
         const cacheKey = this.getDetailCacheKey(currentUrl);

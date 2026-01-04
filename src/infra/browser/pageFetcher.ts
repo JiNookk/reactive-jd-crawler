@@ -62,11 +62,23 @@ export class PageFetcher {
     const page = await this.context!.newPage();
 
     try {
-      // 페이지 로드
-      await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: this.options.timeout,
-      });
+      // 페이지 로드 (networkidle이 안되면 domcontentloaded로 폴백)
+      try {
+        await page.goto(url, {
+          waitUntil: 'networkidle',
+          timeout: this.options.timeout,
+        });
+      } catch (e) {
+        if ((e as Error).message?.includes('Timeout')) {
+          console.log('[Fetcher] networkidle 타임아웃, domcontentloaded로 재시도...');
+          await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: this.options.timeout,
+          });
+        } else {
+          throw e;
+        }
+      }
 
       // 특정 셀렉터 대기 (옵션)
       const selector = waitForSelector || this.options.waitForSelector;
@@ -100,10 +112,23 @@ export class PageFetcher {
     const page = await this.context!.newPage();
 
     try {
-      await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: this.options.timeout,
-      });
+      // 페이지 로드 (networkidle이 안되면 domcontentloaded로 폴백)
+      try {
+        await page.goto(url, {
+          waitUntil: 'networkidle',
+          timeout: this.options.timeout,
+        });
+      } catch (e) {
+        if ((e as Error).message?.includes('Timeout')) {
+          console.log('[Fetcher] networkidle 타임아웃, domcontentloaded로 재시도...');
+          await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: this.options.timeout,
+          });
+        } else {
+          throw e;
+        }
+      }
 
       // 무한 스크롤 처리
       for (let i = 0; i < maxScrolls; i++) {

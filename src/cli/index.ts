@@ -13,6 +13,7 @@ import { CsvWriter } from "../infra/output/csvWriter.js";
 import { CrawlResult } from "../app/services/crawlerOrchestrator.js";
 import { FailureCaseStore } from "../infra/cache/failureCaseStore.js";
 import { CheckpointStore } from "../infra/cache/checkpointStore.js";
+import { CompanyRatingEnricher } from "../app/services/companyRatingEnricher.js";
 
 type CrawlMode = "fast" | "agent";
 type OutputFormat = "json" | "csv";
@@ -29,6 +30,7 @@ interface CliArgs {
   failureStats: boolean;
   resume?: string; // 체크포인트 경로 또는 'auto'
   listCheckpoints: boolean;
+  enrichRatings: boolean; // 회사 평점 조회 여부
 }
 
 function parseArgs(): CliArgs {
@@ -46,6 +48,7 @@ function parseArgs(): CliArgs {
     failureStats: false,
     resume: undefined,
     listCheckpoints: false,
+    enrichRatings: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -79,6 +82,8 @@ function parseArgs(): CliArgs {
       result.resume = args[++i] || "auto";
     } else if (arg === "--list-checkpoints") {
       result.listCheckpoints = true;
+    } else if (arg === "--enrich-ratings" || arg === "-e") {
+      result.enrichRatings = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -112,6 +117,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   --failure-stats           실패 케이스 통계 표시
   -r, --resume <path>       체크포인트에서 재개 (agent 모드만, 'auto'=최신 자동 선택)
   --list-checkpoints        재개 가능한 체크포인트 목록 표시
+  -e, --enrich-ratings      회사 평점 조회 및 추가 (Blind 크롤링)
   -h, --help                도움말 표시
 
 모드 설명:
@@ -123,6 +129,7 @@ JD Crawler - 범용 채용 사이트 크롤러
   pnpm crawl -u "https://www.wanted.co.kr/wdlist/..." -c "원티드" -m 3
   pnpm crawl --url "https://www.jobkorea.co.kr/..." --source "잡코리아" --mode agent
   pnpm crawl -u "https://www.saramin.co.kr/..." -c "사람인" -f csv  # CSV로 출력
+  pnpm crawl -u "https://www.saramin.co.kr/..." -c "사람인" -e     # 평점 조회 포함
 
 환경 변수:
   ANTHROPIC_API_KEY       Claude API 키 (필수)
@@ -338,6 +345,55 @@ Headless: ${args.headless}
       args.format === "csv"
         ? await new CsvWriter(args.output).writeWithStats(result)
         : await new JsonWriter(args.output).writeWithStats(result);
+
+    // 평점 조회 (옵션 활성화 시)
+    let enrichmentStats;
+    let enrichedFilePath;
+    if (args.enrichRatings) {
+      console.log(`
+╔════════════════════════════════════════════════════════════╗
+║                  회사 평점 조회 시작                         ║
+╚════════════════════════════════════════════════════════════╝
+`);
+      const enricher = new CompanyRatingEnricher();
+      const jobsJson = result.jobs.map((job) => job.toJSON());
+      const enrichResult = await enricher.enrichJobs(jobsJson);
+
+      enrichmentStats = enrichResult.stats;
+
+      // 평점이 추가된 결과를 별도 파일로 저장
+      const { mkdir, writeFile } = await import('node:fs/promises');
+      await mkdir(args.output, { recursive: true });
+
+      const baseName = writeResult.filePath.replace(/\.json$/, '');
+      enrichedFilePath = `${baseName}-with-ratings.json`;
+
+      const enrichedOutput = {
+        sourcePlatform: result.sourcePlatform,
+        sourceUrl: result.sourceUrl,
+        crawledAt: result.crawledAt,
+        totalJobs: enrichResult.enrichedJobs.length,
+        jobs: enrichResult.enrichedJobs,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        ratingStats: enrichmentStats,
+      };
+
+      await writeFile(enrichedFilePath, JSON.stringify(enrichedOutput, null, 2), 'utf-8');
+
+      console.log(`
+╔════════════════════════════════════════════════════════════╗
+║                  평점 조회 완료                             ║
+╚════════════════════════════════════════════════════════════╝
+
+총 회사 수: ${enrichmentStats.totalCompanies}
+캐시 HIT: ${enrichmentStats.cacheHits}
+캐시 MISS: ${enrichmentStats.cacheMisses}
+새로 조회된 평점: ${enrichmentStats.newRatingsFound}
+평점 없는 회사: ${enrichmentStats.notFoundRatings}
+소요 시간: ${enrichmentStats.duration.toFixed(2)}초
+평점 포함 파일: ${enrichedFilePath}
+`);
+    }
 
     // 결과 출력
     const totalDuplicates =

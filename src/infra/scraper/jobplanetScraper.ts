@@ -755,12 +755,7 @@ export class JobplanetScraper {
   // ===== 유틸리티 =====
 
   private toSearchQuery(companyName: string): string {
-    return companyName
-      .replace(/\([^)]*\)/g, '')
-      .replace(/주식회사|유한회사|유한책임회사/g, '')
-      .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return CompanyRating.toSearchQuery(companyName);
   }
 
   private delay(ms: number): Promise<void> {

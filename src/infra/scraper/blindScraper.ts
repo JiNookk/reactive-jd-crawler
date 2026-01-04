@@ -288,6 +288,32 @@ export class BlindScraper {
         };
       }
 
+      // 9. 추출된 회사명이 검색한 회사명과 일치하는지 검증
+      const normalizeForValidation = (text: string): string => {
+        return text
+          .toLowerCase()
+          .replace(/\s+/g, '')
+          .replace(/[^\w가-힣]/g, '');
+      };
+
+      const extractedCompanyName = ratingData.companyName || '';
+      const normalizedExtracted = normalizeForValidation(extractedCompanyName);
+      const normalizedSearched = normalizeForValidation(searchQuery);
+
+      if (extractedCompanyName && normalizedExtracted !== normalizedSearched) {
+        const similarity = this.calculateSimilarity(normalizedSearched, normalizedExtracted);
+        console.log(`[Blind] 회사명 검증: "${searchQuery}" vs "${extractedCompanyName}" (유사도: ${similarity.toFixed(2)})`);
+
+        if (similarity < 0.6) {
+          console.log(`[Blind] 회사명 불일치! 검색: "${searchQuery}", 추출: "${extractedCompanyName}"`);
+          return {
+            found: false,
+            searchedCompany: companyName,
+            error: `잘못된 페이지로 이동됨 (검색: ${searchQuery}, 실제: ${extractedCompanyName})`,
+          };
+        }
+      }
+
       const props: CompanyRatingProps = {
         companyName: ratingData.companyName || companyName,
         overallRating: ratingData.overallRating,
@@ -373,6 +399,44 @@ export class BlindScraper {
   }
 
   /**
+   * Levenshtein Distance 계산 (편집 거리)
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const len1 = str1.length;
+    const len2 = str2.length;
+    const matrix: number[][] = [];
+
+    for (let i = 0; i <= len1; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= len2; j++) {
+      matrix[0]![j] = j;
+    }
+
+    for (let i = 1; i <= len1; i++) {
+      for (let j = 1; j <= len2; j++) {
+        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[i]![j] = Math.min(
+          matrix[i - 1]![j]! + 1,      // 삭제
+          matrix[i]![j - 1]! + 1,      // 삽입
+          matrix[i - 1]![j - 1]! + cost // 대체
+        );
+      }
+    }
+
+    return matrix[len1]![len2]!;
+  }
+
+  /**
+   * 문자열 유사도 계산 (0~1, 1이 완전 일치)
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    const distance = this.levenshteinDistance(str1, str2);
+    const maxLen = Math.max(str1.length, str2.length);
+    return maxLen === 0 ? 1 : 1 - distance / maxLen;
+  }
+
+  /**
    * 검색 결과에서 회사 링크 찾기 (Locator 버전)
    */
   private async findCompanyInResultsLocator(searchQuery: string): Promise<any> {
@@ -430,6 +494,10 @@ export class BlindScraper {
                 const companyName = await nameElement.textContent();
                 if (!companyName) continue;
 
+                // 회사명이 30자 이상이면 리뷰/댓글 내용이므로 스킵
+                const trimmedName = companyName.trim();
+                if (trimmedName.length > 30) continue;
+
                 const normalizedName = normalizeText(companyName);
                 const link = card.locator('a[href*="company"]').first();
 
@@ -437,21 +505,17 @@ export class BlindScraper {
 
                 // 정확히 일치
                 if (normalizedName === normalizedQuery) {
-                  console.log(`[Blind] 정확한 매칭: "${companyName.trim()}"`);
+                  console.log(`[Blind] 정확한 매칭: "${trimmedName}"`);
                   return link;
                 }
 
-                // 부분 일치 점수 계산
-                let score = 0;
-                if (normalizedName.includes(normalizedQuery)) {
-                  score = normalizedQuery.length / normalizedName.length;
-                } else if (normalizedQuery.includes(normalizedName) && normalizedName.length >= 2) {
-                  score = normalizedName.length / normalizedQuery.length;
-                }
+                // Levenshtein Distance 기반 유사도 계산
+                const similarity = this.calculateSimilarity(normalizedQuery, normalizedName);
 
-                if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-                  bestMatch = { link, companyName: companyName.trim(), score };
-                  console.log(`[Blind] 부분 매칭: "${companyName.trim()}" (score: ${score.toFixed(2)})`);
+                // 유사도가 0.5 이상인 경우에만 후보로 등록
+                if (similarity >= 0.5 && (!bestMatch || similarity > bestMatch.score)) {
+                  bestMatch = { link, companyName: trimmedName, score: similarity };
+                  console.log(`[Blind] 유사 매칭: "${trimmedName}" (유사도: ${similarity.toFixed(2)})`);
                 }
                 break; // 이 카드에서 회사명을 찾았으므로 다음 카드로
               }
@@ -484,6 +548,10 @@ export class BlindScraper {
 
             if (!href || !text) continue;
 
+            // 텍스트가 30자 이상이면 리뷰/댓글 내용이므로 스킵
+            const trimmedText = text.trim();
+            if (trimmedText.length > 30) continue;
+
             // URL에서 회사 슬러그 추출
             const companySlugMatch = href.match(/\/company\/([^\/]+)/);
             const companySlug = companySlugMatch?.[1] ? decodeURIComponent(companySlugMatch[1]) : '';
@@ -493,21 +561,19 @@ export class BlindScraper {
 
             // 정확히 일치 (텍스트 또는 슬러그)
             if (normalizedText === normalizedQuery || normalizedSlug === normalizedQuery) {
-              console.log(`[Blind] 링크에서 정확한 매칭: "${text.trim()}"`);
+              console.log(`[Blind] 링크에서 정확한 매칭: "${trimmedText}"`);
               return link;
             }
 
-            // 부분 일치
-            let score = 0;
-            if (normalizedText.includes(normalizedQuery) || normalizedSlug.includes(normalizedQuery)) {
-              score = normalizedQuery.length / Math.max(normalizedText.length, normalizedSlug.length);
-            } else if (normalizedQuery.includes(normalizedText) && normalizedText.length >= 2) {
-              score = normalizedText.length / normalizedQuery.length;
-            }
+            // Levenshtein Distance 기반 유사도 계산
+            const textSimilarity = this.calculateSimilarity(normalizedQuery, normalizedText);
+            const slugSimilarity = normalizedSlug ? this.calculateSimilarity(normalizedQuery, normalizedSlug) : 0;
+            const similarity = Math.max(textSimilarity, slugSimilarity);
 
-            if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-              bestMatch = { link, companyName: text.trim(), score };
-              console.log(`[Blind] 링크에서 부분 매칭: "${text.trim()}" (score: ${score.toFixed(2)})`);
+            // 유사도가 0.5 이상인 경우에만 후보로 등록
+            if (similarity >= 0.5 && (!bestMatch || similarity > bestMatch.score)) {
+              bestMatch = { link, companyName: trimmedText, score: similarity };
+              console.log(`[Blind] 링크에서 유사 매칭: "${trimmedText}" (유사도: ${similarity.toFixed(2)})`);
             }
           }
         } catch {
@@ -516,13 +582,17 @@ export class BlindScraper {
       }
     }
 
-    // 유사도가 0.5 이상인 경우에만 반환
-    if (bestMatch && bestMatch.score >= 0.5) {
+    // 유사도가 0.8 이상인 경우에만 반환 (더 엄격한 매칭)
+    if (bestMatch && bestMatch.score >= 0.8) {
       console.log(`[Blind] 최종 선택: "${bestMatch.companyName}" (score: ${bestMatch.score.toFixed(2)})`);
       return bestMatch.link;
     }
 
-    console.log(`[Blind] "${searchQuery}"와 일치하는 회사를 찾을 수 없습니다.`);
+    if (bestMatch) {
+      console.log(`[Blind] 낮은 유사도로 매칭 실패: "${bestMatch.companyName}" (score: ${bestMatch.score.toFixed(2)}, 최소 0.8 필요)`);
+    } else {
+      console.log(`[Blind] "${searchQuery}"와 일치하는 회사를 찾을 수 없습니다.`);
+    }
     return null;
   }
 
@@ -958,17 +1028,9 @@ export class BlindScraper {
 
   /**
    * 회사명을 검색어로 변환 (법인 표기 제거)
-   * - 괄호 안 내용: (주), (유), (사) 등
-   * - 법인 접미사: 주식회사, 유한회사, 유한책임회사
-   * - 영문 접미사: Inc., Corp., Co., Ltd. 등
    */
   private toSearchQuery(companyName: string): string {
-    return companyName
-      .replace(/\([^)]*\)/g, '')           // 괄호 안 내용 제거
-      .replace(/주식회사|유한회사|유한책임회사/g, '')  // 한글 법인 표기
-      .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')  // 영문 법인 표기
-      .replace(/\s+/g, ' ')                // 연속 공백 → 단일 공백
-      .trim();
+    return CompanyRating.toSearchQuery(companyName);
   }
 
   private delay(ms: number): Promise<void> {

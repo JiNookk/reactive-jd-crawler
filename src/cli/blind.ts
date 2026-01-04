@@ -3,13 +3,14 @@
 
 import 'dotenv/config';
 import { BlindScraper, BlindSearchResult } from '../infra/scraper/blindScraper.js';
+import { CompanyRatingCache } from '../infra/cache/companyRatingCache.js';
+import { CompanyRating } from '../domain/companyRating.domain.js';
 import * as fs from 'fs';
 
 interface CliArgs {
   companies: string[];
   fromFile?: string;
   fromCrawlResult?: string;
-  enrichJson?: string; // JSON 파일에 평점 추가
   headless: boolean;
   output: string;
   csv: boolean; // CSV 출력 여부
@@ -36,8 +37,6 @@ function parseArgs(): CliArgs {
       result.fromFile = args[++i];
     } else if (arg === '--from-crawl' || arg === '-r') {
       result.fromCrawlResult = args[++i];
-    } else if (arg === '--enrich' || arg === '-e') {
-      result.enrichJson = args[++i];
     } else if (arg === '--no-headless') {
       result.headless = false;
     } else if (arg === '--csv') {
@@ -67,15 +66,12 @@ function printHelp(): void {
 
 사용법:
   pnpm blind <company> [company2] [options]
-  pnpm blind --company <company> [options]
   pnpm blind --from-crawl <crawl_result.json> [options]
-  pnpm blind --enrich <crawl_result.json> [options]
 
 옵션:
   -c, --company <name>      조회할 회사명 (복수 가능)
   -f, --from-file <file>    회사 목록 파일 (한 줄에 하나씩)
-  -r, --from-crawl <file>   크롤링 결과 JSON에서 회사 추출
-  -e, --enrich <file>       크롤링 결과 JSON에 평점 정보 추가
+  -r, --from-crawl <file>   크롤링 결과 JSON에서 회사 추출 및 평점 추가
   -o, --output <dir>        출력 디렉토리 (기본: ./output)
   -l, --limit <n>           조회할 회사 수 제한
   --csv                     CSV 파일도 함께 생성
@@ -89,17 +85,27 @@ function printHelp(): void {
   # 여러 회사 조회
   pnpm blind Google "Meta" "Amazon"
 
-  # 크롤링 결과에서 회사 추출 후 평점 조회
-  pnpm blind --from-crawl ./output/booking.json
+  # 크롤링 결과에서 회사 추출 후 블라인드 조회 (원본 JSON에 평점 추가)
+  pnpm blind --from-crawl ./output/사람인-백엔드-2026-01-04.json --csv
 
-  # 크롤링 결과 JSON에 평점 정보 추가 (원본 파일 수정)
-  pnpm blind --enrich ./output/booking.json
+캐시:
+  - 위치: .cache/company-ratings.csv
+  - 모든 조회 결과가 자동으로 캐시에 저장됨
+  - 이미 조회된 회사는 캐시에서 바로 사용
 
 출력:
   - 콘솔에 평점 정보 출력
   - output/blind_ratings.json에 결과 저장
-  - --enrich 사용 시: 원본 JSON에 companyRatings 섹션 추가
+  - --from-crawl 사용 시: 원본 JSON에 blindRating 필드 추가
+  - --csv 사용 시: CSV 파일도 함께 생성
 `);
+}
+
+/**
+ * 회사명 → 검색용 키 변환 (법인 표기 제거)
+ */
+function getSearchKey(companyName: string): string {
+  return CompanyRating.toSearchQuery(companyName);
 }
 
 async function loadCompaniesFromFile(filePath: string): Promise<string[]> {
@@ -154,7 +160,7 @@ function formatRating(result: BlindSearchResult): string {
   let output = `
 ${levelEmoji} ${r.companyName}
    전체 평점: ${r.overallRating}/5 (${level})
-   리뷰 수: ${r.reviewCount.toLocaleString()}개`;
+   리뷰 수: ${r.reviewCount !== null ? r.reviewCount.toLocaleString() : '정보 없음'}개`;
 
   if (r.categoryRatings) {
     const cats = r.categoryRatings;
@@ -182,9 +188,9 @@ ${levelEmoji} ${r.companyName}
 
 interface CompanyRatingSummary {
   companyName: string;
-  overallRating: number;
-  reviewCount: number;
-  ratingLevel: string;
+  overallRating: number | null;
+  reviewCount: number | null;
+  ratingLevel: string | null;
   categoryRatings?: {
     workLifeBalance?: number;
     careerGrowth?: number;
@@ -192,7 +198,7 @@ interface CompanyRatingSummary {
     companyCulture?: number;
     management?: number;
   };
-  sourceUrl: string;
+  sourceUrl: string | null;
   queriedAt: string;
 }
 
@@ -233,12 +239,7 @@ async function saveEnrichedJson(
 ): Promise<void> {
   // 회사명 → 검색용 키 변환 (법인 표기 제거)
   const getSearchKey = (companyName: string): string => {
-    return companyName
-      .replace(/\([^)]*\)/g, '')           // 괄호 안 내용 제거
-      .replace(/주식회사|유한회사|유한책임회사/g, '')  // 한글 법인 표기
-      .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')  // 영문 법인 표기
-      .replace(/\s+/g, ' ')                // 연속 공백 → 단일 공백
-      .trim();
+    return CompanyRating.toSearchQuery(companyName);
   };
 
   // 각 job에 blindRating 필드 추가
@@ -270,7 +271,9 @@ async function saveEnrichedJson(
   };
 
   const foundRatings = Array.from(ratingsMap.values());
-  const overallRatings = foundRatings.map((r) => r.overallRating);
+  const overallRatings = foundRatings
+    .map((r) => r.overallRating)
+    .filter((v): v is number => v !== null);
   const wlbRatings = foundRatings
     .map((r) => r.categoryRatings?.workLifeBalance)
     .filter((v): v is number => v !== undefined);
@@ -318,220 +321,6 @@ async function saveEnrichedJson(
     const csvPath = filePath.replace(/\.json$/, '.csv');
     const csvContent = generateCsv(enrichedData.jobs || []);
     await fs.promises.writeFile(csvPath, csvContent);
-  }
-}
-
-async function enrichJsonWithRatings(
-  filePath: string,
-  headless: boolean,
-  exportCsv: boolean = false,
-  limit?: number
-): Promise<void> {
-  console.log(`\n[Enrich] JSON 파일 로드 중: ${filePath}`);
-
-  const content = await fs.promises.readFile(filePath, 'utf-8');
-  const data = JSON.parse(content);
-
-  // 회사명 → 검색용 키 변환 (법인 표기 제거)
-  const getSearchKey = (companyName: string): string => {
-    return companyName
-      .replace(/\([^)]*\)/g, '')           // 괄호 안 내용 제거
-      .replace(/주식회사|유한회사|유한책임회사/g, '')  // 한글 법인 표기
-      .replace(/\b(Inc\.?|Corp\.?|Co\.?,?\s*Ltd\.?|Ltd\.?|LLC)\b/gi, '')  // 영문 법인 표기
-      .replace(/\s+/g, ' ')                // 연속 공백 → 단일 공백
-      .trim();
-  };
-
-  // 회사 목록 추출 (중복 제거)
-  const companyMap = new Map<string, string>(); // searchKey → originalName
-  if (Array.isArray(data.jobs)) {
-    for (const job of data.jobs) {
-      const companyName = job.department || job.company;
-      if (companyName && typeof companyName === 'string') {
-        const searchKey = getSearchKey(companyName);
-        if (!companyMap.has(searchKey)) {
-          companyMap.set(searchKey, companyName);
-        }
-      }
-    }
-  }
-  // jobs가 없으면 최상위 company 사용
-  if (companyMap.size === 0 && data.company) {
-    const searchKey = getSearchKey(data.company);
-    companyMap.set(searchKey, data.company);
-  }
-
-  const companyList = Array.from(companyMap.keys());
-  if (companyList.length === 0) {
-    console.error('에러: JSON에서 회사를 찾을 수 없습니다.');
-    process.exit(1);
-  }
-
-  // 이미 조회된 회사들 추출 (기존 결과 복원)
-  const ratingsMap = new Map<string, CompanyRatingSummary>(); // searchKey → rating
-  const notFoundSet = new Set<string>(); // searchKey 기준 not found 회사
-  const alreadyProcessed = new Set<string>();
-
-  // 기존 companyRatings 섹션에서 복원
-  if (data.companyRatings) {
-    // 이미 찾은 회사들
-    for (const rating of data.companyRatings.companies || []) {
-      const searchKey = getSearchKey(rating.companyName);
-      ratingsMap.set(searchKey, rating);
-      alreadyProcessed.add(searchKey);
-    }
-    // 못 찾은 회사들
-    for (const company of data.companyRatings.notFound || []) {
-      const searchKey = getSearchKey(company);
-      notFoundSet.add(searchKey);
-      alreadyProcessed.add(searchKey);
-    }
-  }
-
-  // 개별 job의 blindRating에서도 복원 (companyRatings가 없는 경우 대비)
-  if (Array.isArray(data.jobs)) {
-    for (const job of data.jobs) {
-      const companyName = job.department || job.company;
-      if (companyName && typeof companyName === 'string') {
-        const searchKey = getSearchKey(companyName);
-        if (job.blindRating && !alreadyProcessed.has(searchKey)) {
-          ratingsMap.set(searchKey, job.blindRating);
-          alreadyProcessed.add(searchKey);
-        }
-      }
-    }
-  }
-
-  // 아직 조회 안 된 회사만 필터링
-  let pendingCompanies = companyList.filter((key) => !alreadyProcessed.has(key));
-  const skippedCount = companyList.length - pendingCompanies.length;
-
-  if (skippedCount > 0) {
-    console.log(`[Enrich] ⏭️  이미 조회된 ${skippedCount}개 회사 건너뜀`);
-  }
-
-  // limit 적용
-  if (limit && limit < pendingCompanies.length) {
-    pendingCompanies = pendingCompanies.slice(0, limit);
-    console.log(`[Enrich] 남은 회사 중 ${limit}개만 조회합니다.`);
-  }
-
-  if (pendingCompanies.length === 0) {
-    console.log(`[Enrich] ✅ 모든 회사가 이미 조회되었습니다.`);
-    // CSV만 다시 생성
-    if (exportCsv) {
-      const notFoundCompanies = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
-      await saveEnrichedJson(filePath, data, ratingsMap, notFoundCompanies, companyList, exportCsv);
-      console.log(`[Enrich] 📄 CSV 파일 갱신 완료`);
-    }
-    return;
-  }
-
-  console.log(`[Enrich] ${pendingCompanies.length}개 회사 평점 조회 시작...`);
-  console.log(`[Enrich] 📁 스트리밍 저장 활성화 - 각 회사 조회 후 즉시 저장`);
-
-  const scraper = new BlindScraper({ headless });
-
-  try {
-    for (let i = 0; i < pendingCompanies.length; i++) {
-      const searchKey = pendingCompanies[i];
-      if (!searchKey) continue;
-
-      // 메모리 캐시: 이미 이번 실행에서 조회한 회사는 건너뛰기
-      if (ratingsMap.has(searchKey) || notFoundSet.has(searchKey)) {
-        console.log(`\n[${i + 1}/${pendingCompanies.length}] ${companyMap.get(searchKey)} - 캐시 사용 (건너뜀)`);
-        continue;
-      }
-
-      console.log(`\n[${i + 1}/${pendingCompanies.length}] ${companyMap.get(searchKey)} 조회 중...`);
-
-      const result = await scraper.searchCompanyRating(searchKey);
-
-      if (result.found && result.rating) {
-        const r = result.rating;
-        ratingsMap.set(searchKey, {
-          companyName: r.companyName,
-          overallRating: r.overallRating,
-          reviewCount: r.reviewCount,
-          ratingLevel: r.getRatingLevel(),
-          categoryRatings: r.categoryRatings,
-          sourceUrl: r.sourceUrl,
-          queriedAt: r.crawledAt,
-        });
-        console.log(`  ✅ ${r.overallRating}/5 (${r.getRatingLevel()})`);
-      } else {
-        notFoundSet.add(searchKey);
-        console.log(`  ❌ ${result.error || '찾을 수 없음'}`);
-      }
-
-      // 스트리밍 저장: 각 회사 조회 후 즉시 파일에 저장
-      const notFoundCompanies = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
-      await saveEnrichedJson(filePath, data, ratingsMap, notFoundCompanies, companyList, exportCsv);
-      console.log(`  💾 저장 완료 (${ratingsMap.size}/${companyList.length})`);
-
-      // Rate limiting (2초 대기 - 현재 페이지에서 바로 검색 가능)
-      if (i < pendingCompanies.length - 1) {
-        console.log(`  ⏳ 다음 요청까지 2초 대기...`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-    }
-  } finally {
-    await scraper.close();
-  }
-
-  const csvPath = exportCsv ? filePath.replace(/\.json$/, '.csv') : null;
-
-  // 평균 계산 (최종 요약용)
-  const calcAverage = (values: number[]): number | null => {
-    if (values.length === 0) return null;
-    return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100;
-  };
-
-  const foundRatings = Array.from(ratingsMap.values());
-  const overallRatings = foundRatings.map((r) => r.overallRating);
-  const wlbRatings = foundRatings
-    .map((r) => r.categoryRatings?.workLifeBalance)
-    .filter((v): v is number => v !== undefined);
-  const cgRatings = foundRatings
-    .map((r) => r.categoryRatings?.careerGrowth)
-    .filter((v): v is number => v !== undefined);
-  const compRatings = foundRatings
-    .map((r) => r.categoryRatings?.compensation)
-    .filter((v): v is number => v !== undefined);
-  const cultureRatings = foundRatings
-    .map((r) => r.categoryRatings?.companyCulture)
-    .filter((v): v is number => v !== undefined);
-  const mgmtRatings = foundRatings
-    .map((r) => r.categoryRatings?.management)
-    .filter((v): v is number => v !== undefined);
-
-  // 요약 출력
-  const notFoundList = Array.from(notFoundSet).map((key) => companyMap.get(key) || key);
-  console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                    평점 추가 완료                            ║
-╚════════════════════════════════════════════════════════════╝
-
-조회 성공: ${foundRatings.length}개
-조회 실패: ${notFoundList.length}개
-
-📊 평균 평점 요약:
-   전체 평균: ${calcAverage(overallRatings) ?? 'N/A'}/5
-   ────────────────────────
-   워라밸: ${calcAverage(wlbRatings) ?? 'N/A'}/5
-   커리어 성장: ${calcAverage(cgRatings) ?? 'N/A'}/5
-   보상/복리후생: ${calcAverage(compRatings) ?? 'N/A'}/5
-   회사 문화: ${calcAverage(cultureRatings) ?? 'N/A'}/5
-   경영진: ${calcAverage(mgmtRatings) ?? 'N/A'}/5
-
-파일 저장됨: ${filePath}${csvPath ? `\nCSV 저장됨: ${csvPath}` : ''}
-※ 각 job 항목에 blindRating 필드가 추가되었습니다.
-※ 스트리밍 저장: 각 회사 조회 후 즉시 저장되어 중간 크래시에도 데이터 유실 없음
-`);
-
-  if (notFoundList.length > 0) {
-    console.log('조회 실패 목록:');
-    notFoundList.forEach((c: string) => console.log(`  - ${c}`));
   }
 }
 
@@ -590,11 +379,11 @@ function generateCsv(jobs: any[]): string {
 async function main(): Promise<void> {
   const args = parseArgs();
 
-  // --enrich 모드
-  if (args.enrichJson) {
-    await enrichJsonWithRatings(args.enrichJson, args.headless, args.csv, args.limit);
-    return;
-  }
+  // 캐시 로드 (무조건)
+  const cache = new CompanyRatingCache();
+  await cache.load();
+  const cacheStats = cache.getStats();
+  console.log(`[캐시] 로드 완료: ${cacheStats.total}개 (평점있음: ${cacheStats.withRating}, 없음: ${cacheStats.notFound})`);
 
   // 회사 목록 수집
   let companies: string[] = [...args.companies];
@@ -617,40 +406,39 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // 캐시에 있는 회사 분리
+  const cachedCompanies: string[] = [];
+  const pendingCompanies: string[] = [];
+
+  for (const company of companies) {
+    if (cache.has(company)) {
+      cachedCompanies.push(company);
+    } else {
+      pendingCompanies.push(company);
+    }
+  }
+
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║              블라인드 회사 평점 조회                          ║
 ╚════════════════════════════════════════════════════════════╝
 
 조회 대상: ${companies.length}개 회사
-${companies.map((c) => `  - ${c}`).join('\n')}
+  - 캐시 사용: ${cachedCompanies.length}개 (건너뜀)
+  - 새로 조회: ${pendingCompanies.length}개
 `);
 
-  const scraper = new BlindScraper({ headless: args.headless });
+  if (pendingCompanies.length === 0) {
+    console.log('✅ 모든 회사가 캐시에 있습니다. 새로 조회할 회사가 없습니다.');
 
-  try {
-    const startTime = Date.now();
-    const results: BlindSearchResult[] = [];
-
-    for (let i = 0; i < companies.length; i++) {
-      const company = companies[i];
-      if (!company) continue;
-
-      console.log(`\n[${i + 1}/${companies.length}] ${company} 조회 중...`);
-
-      const result = await scraper.searchCompanyRating(company);
-      results.push(result);
-
-      console.log(formatRating(result));
-
-      // Rate limiting (2초 대기 - 현재 페이지에서 바로 검색 가능)
-      if (i < companies.length - 1) {
-        console.log(`  ⏳ 다음 요청까지 2초 대기...`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+    // 캐시에서 결과 출력
+    const results = companies.map((company) => {
+      const cached = cache.get(company);
+      if (cached && cached.hasRating()) {
+        return { searchedCompany: company, found: true, rating: cached, error: undefined };
       }
-    }
-
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      return { searchedCompany: company, found: false, rating: undefined, error: '캐시: 조회 실패' };
+    });
 
     // 결과 저장
     const outputData = {
@@ -669,16 +457,232 @@ ${companies.map((c) => `  - ${c}`).join('\n')}
     const outputPath = `${args.output}/blind_ratings.json`;
     await fs.promises.mkdir(args.output, { recursive: true });
     await fs.promises.writeFile(outputPath, JSON.stringify(outputData, null, 2));
+    console.log(`결과 파일: ${outputPath}`);
+
+    // --from-crawl 사용 시 원본 JSON에도 blindRating 추가
+    if (args.fromCrawlResult) {
+      const content = await fs.promises.readFile(args.fromCrawlResult, 'utf-8');
+      const data = JSON.parse(content);
+
+      const ratingsMap = new Map<string, CompanyRatingSummary>();
+      const notFoundCompanies: string[] = [];
+
+      for (const r of results) {
+        const searchKey = getSearchKey(r.searchedCompany);
+        if (r.found && r.rating) {
+          ratingsMap.set(searchKey, {
+            companyName: r.rating.companyName,
+            overallRating: r.rating.overallRating,
+            reviewCount: r.rating.reviewCount,
+            ratingLevel: r.rating.getRatingLevel(),
+            sourceUrl: r.rating.sourceUrl,
+            queriedAt: r.rating.crawledAt,
+          });
+        } else {
+          notFoundCompanies.push(r.searchedCompany);
+        }
+      }
+
+      await saveEnrichedJson(args.fromCrawlResult, data, ratingsMap, notFoundCompanies, companies, args.csv);
+      console.log(`\n✅ 원본 JSON 업데이트 완료: ${args.fromCrawlResult}`);
+      if (args.csv) {
+        console.log(`✅ CSV 파일 생성 완료: ${args.fromCrawlResult.replace(/\.json$/, '.csv')}`);
+      }
+    }
+    return;
+  }
+
+  const scraper = new BlindScraper({ headless: args.headless });
+
+  try {
+    const startTime = Date.now();
+    const results: BlindSearchResult[] = [];
+
+    // limit 적용
+    let toQuery = pendingCompanies;
+    if (args.limit && args.limit < pendingCompanies.length) {
+      toQuery = pendingCompanies.slice(0, args.limit);
+      console.log(`[Limit] ${args.limit}개만 조회합니다.`);
+    }
+
+    // 스트리밍을 위한 준비: 원본 JSON 미리 로드
+    let originalData: any = null;
+    if (args.fromCrawlResult) {
+      const content = await fs.promises.readFile(args.fromCrawlResult, 'utf-8');
+      originalData = JSON.parse(content);
+    }
+
+    // 스트리밍용 ratingsMap, notFoundCompanies (캐시 데이터로 초기화)
+    const ratingsMap = new Map<string, CompanyRatingSummary>();
+    const notFoundCompanies: string[] = [];
+
+    // 캐시된 회사 결과를 미리 ratingsMap에 추가
+    for (const company of cachedCompanies) {
+      const cached = cache.get(company);
+      const searchKey = getSearchKey(company);
+      if (cached && cached.hasRating()) {
+        ratingsMap.set(searchKey, {
+          companyName: cached.companyName,
+          overallRating: cached.overallRating,
+          reviewCount: cached.reviewCount,
+          ratingLevel: cached.getRatingLevel(),
+          categoryRatings: cached.categoryRatings,
+          sourceUrl: cached.sourceUrl,
+          queriedAt: cached.crawledAt,
+        });
+      } else {
+        notFoundCompanies.push(company);
+      }
+    }
+
+    // 스트리밍 저장 함수
+    const saveStreamingResult = async () => {
+      if (args.fromCrawlResult && originalData) {
+        // 깊은 복사하여 원본 보존
+        const dataCopy = JSON.parse(JSON.stringify(originalData));
+        await saveEnrichedJson(args.fromCrawlResult, dataCopy, ratingsMap, notFoundCompanies, companies, args.csv);
+      }
+    };
+
+    // 초기 저장 (캐시 데이터로)
+    await saveStreamingResult();
+
+    for (let i = 0; i < toQuery.length; i++) {
+      const company = toQuery[i];
+      if (!company) continue;
+
+      // 매 조회 전 캐시 재로드 (병렬 실행 시 다른 프로세스가 저장한 데이터 반영)
+      await cache.reload();
+
+      // 다른 프로세스가 이미 조회했는지 확인
+      if (cache.has(company)) {
+        const cached = cache.get(company);
+        const searchKey = getSearchKey(company);
+
+        if (cached && cached.hasRating()) {
+          console.log(`\n[${i + 1}/${toQuery.length}] ${company} - 캐시 사용 (평점: ${cached.overallRating})`);
+          ratingsMap.set(searchKey, {
+            companyName: cached.companyName,
+            overallRating: cached.overallRating,
+            reviewCount: cached.reviewCount,
+            ratingLevel: cached.getRatingLevel(),
+            categoryRatings: cached.categoryRatings,
+            sourceUrl: cached.sourceUrl,
+            queriedAt: cached.crawledAt,
+          });
+        } else {
+          console.log(`\n[${i + 1}/${toQuery.length}] ${company} - 캐시 사용 (조회 실패 기록됨, 건너뜀)`);
+          notFoundCompanies.push(company);
+        }
+
+        // 스트리밍 저장
+        await saveStreamingResult();
+        continue;
+      }
+
+      console.log(`\n[${i + 1}/${toQuery.length}] ${company} 조회 중...`);
+
+      const result = await scraper.searchCompanyRating(company);
+      results.push(result);
+
+      // 캐시에 저장
+      if (result.found && result.rating) {
+        cache.set(company, result.rating);
+      } else {
+        cache.set(company, CompanyRating.createNotFound(company));
+      }
+
+      // 매 조회마다 캐시 저장 (크래시 대비)
+      await cache.save();
+
+      // 스트리밍: ratingsMap/notFoundCompanies 업데이트
+      const searchKey = getSearchKey(company);
+      if (result.found && result.rating) {
+        ratingsMap.set(searchKey, {
+          companyName: result.rating.companyName,
+          overallRating: result.rating.overallRating,
+          reviewCount: result.rating.reviewCount,
+          ratingLevel: result.rating.getRatingLevel(),
+          categoryRatings: result.rating.categoryRatings,
+          sourceUrl: result.rating.sourceUrl,
+          queriedAt: new Date(result.rating.crawledAt).toISOString(),
+        });
+      } else {
+        notFoundCompanies.push(company);
+      }
+
+      // 스트리밍: 매 조회마다 JSON/CSV 저장
+      await saveStreamingResult();
+
+      console.log(formatRating(result));
+      console.log(`  💾 결과 저장 완료 (${i + 1}/${toQuery.length})`);
+
+      // Rate limiting (2초 대기)
+      if (i < toQuery.length - 1) {
+        console.log(`  ⏳ 다음 요청까지 2초 대기...`);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+    // 전체 결과 (캐시 + 새 조회)
+    const allResults = companies.map((company) => {
+      // 새로 조회한 것 중에 있으면 그걸 사용
+      const newResult = results.find((r) => r.searchedCompany === company);
+      if (newResult) {
+        return {
+          searchedCompany: company,
+          found: newResult.found,
+          error: newResult.error,
+          rating: newResult.rating?.toJSON(),
+        };
+      }
+      // 캐시에서 가져오기
+      const cached = cache.get(company);
+      if (cached && cached.hasRating()) {
+        return {
+          searchedCompany: company,
+          found: true,
+          error: undefined,
+          rating: cached.toJSON(),
+        };
+      }
+      return {
+        searchedCompany: company,
+        found: false,
+        error: '캐시: 조회 실패',
+        rating: undefined,
+      };
+    });
+
+    // 결과 저장
+    const outputData = {
+      queriedAt: new Date().toISOString(),
+      totalCompanies: companies.length,
+      found: allResults.filter((r) => r.found).length,
+      notFound: allResults.filter((r) => !r.found).length,
+      fromCache: cachedCompanies.length,
+      newlyQueried: results.length,
+      results: allResults,
+    };
+
+    const outputPath = `${args.output}/blind_ratings.json`;
+    await fs.promises.mkdir(args.output, { recursive: true });
+    await fs.promises.writeFile(outputPath, JSON.stringify(outputData, null, 2));
 
     // 요약 출력
-    const successCount = results.filter((r) => r.found).length;
-    const failCount = results.filter((r) => !r.found).length;
+    const successCount = allResults.filter((r) => r.found).length;
+    const failCount = allResults.filter((r) => !r.found).length;
 
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                       조회 완료                              ║
 ╚════════════════════════════════════════════════════════════╝
 
+전체 회사: ${companies.length}개
+  - 캐시 사용: ${cachedCompanies.length}개
+  - 새로 조회: ${results.length}개
 조회 성공: ${successCount}개
 조회 실패: ${failCount}개
 소요 시간: ${duration}초
@@ -687,9 +691,16 @@ ${companies.map((c) => `  - ${c}`).join('\n')}
 
     if (failCount > 0) {
       console.log('조회 실패 목록:');
-      results
+      allResults
         .filter((r) => !r.found)
         .forEach((r) => console.log(`  - ${r.searchedCompany}: ${r.error}`));
+    }
+
+    if (args.fromCrawlResult) {
+      console.log(`\n✅ 원본 JSON 업데이트 완료: ${args.fromCrawlResult}`);
+      if (args.csv) {
+        console.log(`✅ CSV 파일 생성 완료: ${args.fromCrawlResult.replace(/\.json$/, '.csv')}`);
+      }
     }
   } finally {
     await scraper.close();
