@@ -6,7 +6,7 @@ import { JobPosting } from '../../domain/jobPosting.domain.js';
 import { PageStructure, ListPageSelectors, ApiConfig } from '../../domain/pageStructure.domain.js';
 
 export interface ApiCrawlOptions {
-  company: string;
+  sourcePlatform: string; // 크롤링 소스
   maxPages?: number;
   pageSize?: number;
   startPage?: number;
@@ -30,7 +30,7 @@ export class ApiCrawler {
     structure: PageStructure,
     options: ApiCrawlOptions
   ): Promise<ApiCrawlResult> {
-    const { company, maxPages = 1, pageSize = 40, startPage = 1, extraParams = {} } = options;
+    const { sourcePlatform, maxPages = 1, pageSize = 40, startPage = 1, extraParams = {} } = options;
 
     if (structure.strategy !== 'api') {
       throw new Error('[ApiCrawler] API 전략이 아닙니다. DOM 크롤러를 사용하세요.');
@@ -62,7 +62,7 @@ export class ApiCrawler {
           html,
           baseUrl,
           structure.selectors as ListPageSelectors,
-          company
+          sourcePlatform
         );
 
         if (page === startPage && total > 0) {
@@ -184,7 +184,7 @@ export class ApiCrawler {
     html: string,
     baseUrl: string,
     selectors: ListPageSelectors,
-    company: string
+    sourcePlatform: string
   ): { jobs: JobPosting[]; total: number } {
     const $ = cheerio.load(html);
     const jobs: JobPosting[] = [];
@@ -218,28 +218,34 @@ export class ApiCrawler {
         ? $item.find(selectors.title).text().trim()
         : '';
 
-      const companyName = selectors.department
-        ? $item.find(selectors.department).text().trim()
-        : company;
+      const companyName = selectors.company
+        ? $item.find(selectors.company).text().trim()
+        : undefined;
 
       const location = selectors.location
         ? $item.find(selectors.location).text().trim()
+        : undefined;
+
+      const department = selectors.department
+        ? $item.find(selectors.department).text().trim()
         : undefined;
 
       const href = selectors.detailLink
         ? $item.find(selectors.detailLink).attr('href')
         : undefined;
 
-      if (title && href) {
+      if (title && companyName && href) {
         const sourceUrl = this.resolveUrl(baseUrl, href);
-        const id = `${company.toLowerCase().replace(/\s+/g, '-')}-${index}-${Date.now()}`;
+        const id = `${sourcePlatform.toLowerCase().replace(/\s+/g, '-')}-${index}-${Date.now()}`;
 
         jobs.push(
           JobPosting.create({
             id,
             title,
-            company: companyName || company,
+            sourcePlatform,
+            company: companyName,
             location,
+            department,
             sourceUrl,
             crawledAt: now,
           })

@@ -47,9 +47,10 @@ const LIST_PAGE_PROMPT = `이 HTML은 채용 사이트의 직무 목록 페이�
 5. selectors:
    - jobList: 직무 목록 전체를 감싸는 컨테이너 셀렉터 (필수)
    - jobItem: 개별 직무 항목 셀렉터 (필수)
-   - title: 직무명 셀렉터 (jobItem 내부 기준)
+   - title: 직무명 셀렉터 (jobItem 내부 기준, 필수)
+   - company: 회사명 셀렉터 (필수) - 예: "네이버", "카카오", "삼성전자"
    - location: 근무지 셀렉터
-   - department: 부서/회사명 셀렉터
+   - department: 부서/팀 셀렉터 (선택) - 예: "프론트엔드팀", "백엔드개발팀"
    - detailLink: 상세 페이지 링크 셀렉터
 
 6. pagination:
@@ -66,8 +67,9 @@ const LIST_PAGE_PROMPT = `이 HTML은 채용 사이트의 직무 목록 페이�
     "jobList": ".jobs-container",
     "jobItem": ".job-card",
     "title": ".job-title",
+    "company": ".company-name",
     "location": ".job-location",
-    "department": ".company-name",
+    "department": ".department-name",
     "detailLink": "a.job-link"
   },
   "pagination": {
@@ -89,7 +91,7 @@ const LIST_PAGE_PROMPT = `이 HTML은 채용 사이트의 직무 목록 페이�
     "jobList": ".job-list-container",
     "jobItem": ".job-item",
     "title": ".job-title",
-    "department": ".company-name"
+    "company": ".company-name"
   },
   "pagination": {
     "type": "none"
@@ -108,8 +110,9 @@ const DETAIL_PAGE_PROMPT = `이 HTML은 채용 사이트의 직무 상세 페이
 2. urlPattern: URL 패턴 (동적 ID 부분은 :id로 표시)
 3. selectors:
    - title: 직무명 셀렉터
+   - company: 회사명 셀렉터
    - location: 근무지 셀렉터
-   - department: 부서 셀렉터
+   - department: 부서/팀 셀렉터 (선택)
    - description: 직무 설명 셀렉터
    - requirements: 자격 요건 셀렉터
    - responsibilities: 담당 업무 셀렉터

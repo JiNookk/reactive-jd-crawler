@@ -19,7 +19,7 @@ type OutputFormat = "json" | "csv";
 
 interface CliArgs {
   url: string;
-  company: string;
+  sourcePlatform: string;
   maxPages: number;
   headless: boolean;
   output: string;
@@ -36,7 +36,7 @@ function parseArgs(): CliArgs {
 
   const result: CliArgs = {
     url: "",
-    company: "",
+    sourcePlatform: "",
     maxPages: 1,
     headless: true,
     output: "./output",
@@ -53,8 +53,8 @@ function parseArgs(): CliArgs {
 
     if (arg === "--url" || arg === "-u") {
       result.url = args[++i] || "";
-    } else if (arg === "--company" || arg === "-c") {
-      result.company = args[++i] || "";
+    } else if (arg === "--source" || arg === "--company" || arg === "-c") {
+      result.sourcePlatform = args[++i] || "";
     } else if (arg === "--max-pages" || arg === "-m") {
       result.maxPages = parseInt(args[++i] || "1", 10);
     } else if (arg === "--no-headless") {
@@ -97,31 +97,32 @@ JD Crawler - 범용 채용 사이트 크롤러
 
 사용법:
   pnpm crawl <url> [options]
-  pnpm crawl --url <url> --company <company> [options]
+  pnpm crawl --url <url> --source <platform> [options]
 
 옵션:
-  -u, --url <url>         크롤링할 채용 페이지 URL (필수, --resume 사용 시 생략 가능)
-  -c, --company <company> 회사명 (필수)
-  -m, --max-pages <n>     최대 페이지 수 (기본: 1, 0=무제한, fast 모드만)
-  -d, --details           상세 페이지도 크롤링 (JD 전문 수집, fast 모드만)
-  --mode <mode>           크롤링 모드: fast(기본) | agent(ReAct 패턴)
-  -f, --format <format>   출력 형식: json(기본) | csv
-  -o, --output <dir>      출력 디렉토리 (기본: ./output)
-  --no-headless           브라우저 UI 표시
-  --failure-stats         실패 케이스 통계 표시
-  -r, --resume <path>     체크포인트에서 재개 (agent 모드만, 'auto'=최신 자동 선택)
-  --list-checkpoints      재개 가능한 체크포인트 목록 표시
-  -h, --help              도움말 표시
+  -u, --url <url>           크롤링할 채용 페이지 URL (필수, --resume 사용 시 생략 가능)
+  -c, --source <platform>   크롤링 소스 플랫폼 (필수) - 예: "사람인", "원티드", "잡코리아"
+      --company <platform>  --source의 별칭 (하위호환성)
+  -m, --max-pages <n>       최대 페이지 수 (기본: 1, 0=무제한, fast 모드만)
+  -d, --details             상세 페이지도 크롤링 (JD 전문 수집, fast 모드만)
+  --mode <mode>             크롤링 모드: fast(기본) | agent(ReAct 패턴)
+  -f, --format <format>     출력 형식: json(기본) | csv
+  -o, --output <dir>        출력 디렉토리 (기본: ./output)
+  --no-headless             브라우저 UI 표시
+  --failure-stats           실패 케이스 통계 표시
+  -r, --resume <path>       체크포인트에서 재개 (agent 모드만, 'auto'=최신 자동 선택)
+  --list-checkpoints        재개 가능한 체크포인트 목록 표시
+  -h, --help                도움말 표시
 
 모드 설명:
   fast   : 고정된 셀렉터 기반 빠른 크롤링 (저렴, 단순 사이트용)
   agent  : LLM이 상황 판단하며 크롤링 (유연, SPA/복잡한 사이트용)
 
 예시:
-  pnpm crawl --url "https://jobs.booking.com/booking/jobs" --company "Booking.com"
-  pnpm crawl -u "https://careers.tencent.com/en-us/search.html" -c "Tencent" -m 3
-  pnpm crawl --url "https://example.com/jobs" --company "Example" --mode agent
-  pnpm crawl -u "https://example.com/jobs" -c "Example" -f csv  # CSV로 출력
+  pnpm crawl --url "https://www.saramin.co.kr/zf_user/jobs/..." --source "사람인"
+  pnpm crawl -u "https://www.wanted.co.kr/wdlist/..." -c "원티드" -m 3
+  pnpm crawl --url "https://www.jobkorea.co.kr/..." --source "잡코리아" --mode agent
+  pnpm crawl -u "https://www.saramin.co.kr/..." -c "사람인" -f csv  # CSV로 출력
 
 환경 변수:
   ANTHROPIC_API_KEY       Claude API 키 (필수)
@@ -135,7 +136,7 @@ async function crawl(args: CliArgs) {
       const page = await browser.newPage();
 
       try {
-        const agent = new CrawlerAgent(page, args.company);
+        const agent = new CrawlerAgent(page, args.sourcePlatform);
         let jobs;
 
         if (args.resume) {
@@ -155,7 +156,7 @@ async function crawl(args: CliArgs) {
         }
 
         const result = {
-          company: args.company,
+          sourcePlatform: args.sourcePlatform,
           sourceUrl: args.url,
           jobs: jobs,
           totalCount: jobs.length,
@@ -176,7 +177,7 @@ async function crawl(args: CliArgs) {
       });
 
       const result = await crawler.crawl(args.url, {
-        company: args.company,
+        sourcePlatform: args.sourcePlatform,
         maxPages: args.maxPages,
         includeDetails: args.includeDetails,
       });
@@ -253,14 +254,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 유효성 검사 (--resume 사용 시 URL과 회사명은 체크포인트에서 가져옴)
+  // 유효성 검사 (--resume 사용 시 URL과 소스 플랫폼은 체크포인트에서 가져옴)
   if (!args.resume) {
     if (!args.url) {
       console.error("에러: URL이 필요합니다. --help로 사용법을 확인하세요.");
       process.exit(1);
     }
-    if (!args.company) {
-      console.error("에러: 회사명이 필요합니다. --help로 사용법을 확인하세요.");
+    if (!args.sourcePlatform) {
+      console.error("에러: 크롤링 소스 플랫폼이 필요합니다. --help로 사용법을 확인하세요.");
       process.exit(1);
     }
   }
@@ -296,7 +297,7 @@ async function main(): Promise<void> {
     }
 
     args.url = checkpoint.url;
-    args.company = checkpoint.company;
+    args.sourcePlatform = checkpoint.company; // 체크포인트는 아직 company 필드 사용
 
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
@@ -312,7 +313,7 @@ ${checkpoint.generateSummary()}
 ╚════════════════════════════════════════════════════════════╝
 
 대상 URL: ${args.url}
-회사명: ${args.company}
+크롤링 소스: ${args.sourcePlatform}
 모드: ${args.mode}
 ${args.mode === "fast" ? `최대 페이지: ${args.maxPages}` : ""}
 ${

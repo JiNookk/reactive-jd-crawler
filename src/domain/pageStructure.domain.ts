@@ -24,7 +24,8 @@ export interface ListPageSelectors {
   jobItem: string;
   title?: string;
   location?: string;
-  department?: string;
+  company?: string; // 실제 회사명 (필수)
+  department?: string; // 부서/팀 (optional)
   detailLink?: string;
   [key: string]: string | undefined;
 }
@@ -32,7 +33,8 @@ export interface ListPageSelectors {
 export interface DetailPageSelectors {
   title?: string;
   location?: string;
-  department?: string;
+  company?: string; // 실제 회사명
+  department?: string; // 부서/팀 (optional)
   description?: string;
   requirements?: string;
   responsibilities?: string;
@@ -162,7 +164,7 @@ export class PageStructure {
 
   static createListPage(props: ListPageProps): PageStructure {
     // 필수 셀렉터 검증
-    const requiredSelectors = ['jobList', 'jobItem', 'title', 'department'] as const;
+    const requiredSelectors = ['jobList', 'jobItem', 'title', 'company'] as const;
     for (const field of requiredSelectors) {
       const value = props.selectors[field];
       if (!value || value.trim() === '') {
@@ -222,7 +224,7 @@ export class PageStructure {
   static fromJSON(json: PageStructureJSON): PageStructure {
     // 목록 페이지 필수 셀렉터 검증
     if (json.pageType === 'list') {
-      const requiredSelectors = ['jobList', 'jobItem', 'title', 'department'] as const;
+      const requiredSelectors = ['jobList', 'jobItem', 'title', 'company'] as const;
       for (const field of requiredSelectors) {
         const value = (json.selectors as ListPageSelectors)[field];
         if (!value || value.trim() === '') {

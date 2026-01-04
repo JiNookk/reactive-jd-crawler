@@ -8,7 +8,7 @@ import { JobPosting } from '../../domain/jobPosting.domain.js';
 import { ApiCrawler } from '../../infra/crawler/apiCrawler.js';
 
 export interface CrawlOptions {
-  company: string;
+  sourcePlatform: string; // 크롤링 소스 (예: "사람인", "원티드")
   maxPages?: number;
   includeDetails?: boolean;
   headless?: boolean;
@@ -17,7 +17,7 @@ export interface CrawlOptions {
 }
 
 export interface CrawlResult {
-  company: string;
+  sourcePlatform: string; // 크롤링 소스
   sourceUrl: string;
   jobs: JobPosting[];
   totalCount: number;
@@ -113,7 +113,7 @@ export class CrawlerOrchestrator {
 
       // 데이터 추출 (첫 페이지)
       console.log(`[Extractor] 직무 데이터 추출 중...`);
-      const jobs = await this.extractor.extractFromListPage(page, structure, options.company);
+      const jobs = await this.extractor.extractFromListPage(page, structure, options.sourcePlatform);
 
       // 중복 제거하며 추가
       for (const job of jobs) {
@@ -139,7 +139,7 @@ export class CrawlerOrchestrator {
         const paginationResult = await this.handlePagination(
           page,
           structure,
-          options.company,
+          options.sourcePlatform,
           effectiveMaxPages - 1,
           seenJobKeys,
           options.retryCount ?? 2,
@@ -156,7 +156,7 @@ export class CrawlerOrchestrator {
 
       // 상세 페이지 크롤링 (옵션)
       if (options.includeDetails && allJobs.length > 0) {
-        const enrichedJobs = await this.crawlDetailPages(allJobs, options.company, errors);
+        const enrichedJobs = await this.crawlDetailPages(allJobs, options.sourcePlatform, errors);
         // 기존 jobs를 enriched jobs로 교체
         allJobs.length = 0;
         allJobs.push(...enrichedJobs);
@@ -170,7 +170,7 @@ export class CrawlerOrchestrator {
     }
 
     return {
-      company: options.company,
+      sourcePlatform: options.sourcePlatform,
       sourceUrl: url,
       jobs: allJobs,
       totalCount: allJobs.length,
@@ -184,7 +184,7 @@ export class CrawlerOrchestrator {
   private async handlePagination(
     page: any,
     structure: PageStructure,
-    company: string,
+    sourcePlatform: string,
     maxPages: number,
     seenJobKeys: Set<string>,
     retryCount: number,
@@ -233,7 +233,7 @@ export class CrawlerOrchestrator {
 
           // 추가 데이터 추출 (무한 스크롤: 새로 로드된 아이템만 추출)
           const startIndex = isInfiniteScroll ? lastProcessedIndex : 0;
-          const jobs = await this.extractor.extractFromListPage(page, structure, company, startIndex);
+          const jobs = await this.extractor.extractFromListPage(page, structure, sourcePlatform, startIndex);
 
           // 무한 스크롤: 다음 추출을 위해 현재 DOM 아이템 수 업데이트
           if (isInfiniteScroll && jobItemSelector) {
@@ -422,7 +422,7 @@ export class CrawlerOrchestrator {
 
   private async crawlDetailPages(
     jobs: JobPosting[],
-    company: string,
+    sourcePlatform: string,
     errors: string[]
   ): Promise<JobPosting[]> {
     const enrichedJobs: JobPosting[] = [];
@@ -474,8 +474,8 @@ export class CrawlerOrchestrator {
         const enrichedJob = await this.extractor.extractFromDetailPage(
           page,
           structure,
-          company,
-          { id: job.id, title: job.title, location: job.location, department: job.department }
+          sourcePlatform,
+          { id: job.id, title: job.title, sourcePlatform: job.sourcePlatform, company: job.company, location: job.location, department: job.department }
         );
 
         enrichedJobs.push(enrichedJob);
@@ -531,7 +531,7 @@ export class CrawlerOrchestrator {
     crawledAt: string
   ): Promise<CrawlResult> {
     const result = await this.apiCrawler.crawl(url, structure, {
-      company: options.company,
+      sourcePlatform: options.sourcePlatform,
       maxPages: options.maxPages ?? 1,
     });
 
@@ -553,7 +553,7 @@ export class CrawlerOrchestrator {
     // 캐시 히트는 이미 cache.get()에서 기록됨
 
     return {
-      company: options.company,
+      sourcePlatform: options.sourcePlatform,
       sourceUrl: url,
       jobs: uniqueJobs,
       totalCount: result.totalCount,

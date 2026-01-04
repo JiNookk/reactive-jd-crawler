@@ -6,8 +6,9 @@ export type CheckpointStatus = 'in_progress' | 'completed' | 'failed' | 'suspend
 // 수집된 직무 정보 (간소화된 형태)
 interface ExtractedJobData {
   title: string;
+  company?: string; // 실제 회사명
   location?: string;
-  department?: string;
+  department?: string; // 부서/팀 (optional)
   detailUrl?: string;
 }
 

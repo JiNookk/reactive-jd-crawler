@@ -528,7 +528,8 @@ URL: ${url}
       JobPosting.create({
         id: uuidv4(),
         title: job.title,
-        company: this.company,
+        sourcePlatform: this.company,
+        company: job.company || "",
         sourceUrl: job.detailUrl || url,
         crawledAt: new Date(),
         location: job.location,
@@ -650,6 +651,7 @@ URL: ${url}
     // 이전 상태 복원
     this.state.extractedJobs = checkpoint.extractedJobs.map((j) => ({
       title: j.title,
+      company: j.company,
       location: j.location,
       department: j.department,
       detailUrl: j.detailUrl,

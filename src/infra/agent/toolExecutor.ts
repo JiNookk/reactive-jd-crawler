@@ -14,8 +14,9 @@ import {
 
 export interface ExtractedJob {
   title: string;
+  company?: string; // 실제 회사명
   location?: string;
-  department?: string;
+  department?: string; // 부서/팀 (optional)
   detailUrl?: string;
 }
 

@@ -5,8 +5,9 @@ import { JobPosting } from '../../domain/jobPosting.domain.js';
 
 export interface ExtractedJobData {
   title?: string;
+  company?: string; // 실제 회사명
   location?: string;
-  department?: string;
+  department?: string; // 부서/팀
   detailUrl?: string;
   description?: string;
   requirements?: string[];
@@ -25,7 +26,7 @@ export class DataExtractor {
   async extractFromListPage(
     page: Page,
     structure: PageStructure,
-    company: string,
+    sourcePlatform: string, // 크롤링 소스 (예: "사람인", "원티드")
     startIndex: number = 0
   ): Promise<JobPosting[]> {
     if (structure.pageType !== 'list') {
@@ -52,6 +53,10 @@ export class DataExtractor {
           data.title = await this.extractText(item, selectors.title);
         }
 
+        if (selectors.company) {
+          data.company = await this.extractText(item, selectors.company);
+        }
+
         if (selectors.location) {
           data.location = await this.extractText(item, selectors.location);
         }
@@ -68,18 +73,19 @@ export class DataExtractor {
           }
         }
 
-        // 제목이 없으면 건너뛰기
-        if (!data.title) {
+        // 제목과 회사명이 없으면 건너뛰기
+        if (!data.title || !data.company) {
           continue;
         }
 
-        const id = `${company.toLowerCase().replace(/\s+/g, '-')}-${i}-${Date.now()}`;
+        const id = `${sourcePlatform.toLowerCase().replace(/\s+/g, '-')}-${i}-${Date.now()}`;
         const sourceUrl = data.detailUrl || page.url();
 
         const job = JobPosting.create({
           id,
           title: data.title,
-          company,
+          sourcePlatform,
+          company: data.company,
           sourceUrl,
           crawledAt: now,
           location: data.location,
@@ -99,7 +105,7 @@ export class DataExtractor {
   async extractFromDetailPage(
     page: Page,
     structure: PageStructure,
-    company: string,
+    sourcePlatform: string, // 크롤링 소스
     existingJob?: Partial<JobPosting>
   ): Promise<JobPosting> {
     if (structure.pageType !== 'detail') {
@@ -113,6 +119,10 @@ export class DataExtractor {
     // 각 필드 추출
     if (selectors.title) {
       data.title = await this.extractTextFromPage(page, selectors.title);
+    }
+
+    if (selectors.company) {
+      data.company = await this.extractTextFromPage(page, selectors.company);
     }
 
     if (selectors.location) {
@@ -161,11 +171,17 @@ export class DataExtractor {
       throw new Error('직무명을 찾을 수 없습니다');
     }
 
-    const id = existingJob?.id || `${company.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+    const company = data.company || existingJob?.company;
+    if (!company) {
+      throw new Error('회사명을 찾을 수 없습니다');
+    }
+
+    const id = existingJob?.id || `${sourcePlatform.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
 
     return JobPosting.create({
       id,
       title,
+      sourcePlatform: existingJob?.sourcePlatform || sourcePlatform,
       company,
       sourceUrl: page.url(),
       crawledAt: now,
