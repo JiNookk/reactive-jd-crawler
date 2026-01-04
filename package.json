@@ -15,7 +15,8 @@
     "crawl": "tsx src/cli/index.ts",
     "batch": "tsx src/cli/batchCrawl.ts",
     "cache:stats": "tsx src/cli/cacheStats.ts",
-    "blind": "tsx src/cli/blind.ts"
+    "blind": "tsx src/cli/blind.ts",
+    "jobplanet": "tsx src/cli/jobplanet.ts"
   },
   "keywords": [
     "crawler",
