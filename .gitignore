@@ -6,7 +6,7 @@ dist/
 
 # Output
 input/
-output/
+/output/
 
 # Cache
 .cache/
