@@ -1,5 +1,27 @@
 // 직무 정보를 담는 값 객체
 
+/**
+ * 크롤링 시 추출된 raw 데이터
+ * - 에이전트/추출기에서 공통으로 사용
+ * - JobPosting으로 변환하기 전 중간 단계
+ */
+export interface RawJobData {
+  title: string;
+  company?: string;
+  location?: string;
+  department?: string;
+  detailUrl?: string;
+  description?: string;
+  requirements?: string[];
+  responsibilities?: string[];
+  salary?: string;
+  employmentType?: string;
+  experienceLevel?: string;
+  postedDate?: string;
+  closingDate?: string;
+  externalId?: string;
+}
+
 export interface JobPostingProps {
   id: string;
   title: string;
@@ -111,6 +133,45 @@ export class JobPosting {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * RawJobData에서 JobPosting 생성
+   * @param raw - 크롤링으로 추출한 raw 데이터
+   * @param meta - 소스 플랫폼, URL 등 메타데이터
+   */
+  static fromRaw(
+    raw: RawJobData,
+    meta: {
+      id: string;
+      sourcePlatform: string;
+      sourceUrl: string;
+      crawledAt?: Date;
+    }
+  ): JobPosting {
+    if (!raw.company) {
+      throw new Error('회사명은 필수입니다');
+    }
+
+    return JobPosting.create({
+      id: meta.id,
+      title: raw.title,
+      sourcePlatform: meta.sourcePlatform,
+      company: raw.company,
+      sourceUrl: raw.detailUrl || meta.sourceUrl,
+      crawledAt: meta.crawledAt || new Date(),
+      location: raw.location,
+      department: raw.department,
+      description: raw.description,
+      requirements: raw.requirements,
+      responsibilities: raw.responsibilities,
+      salary: raw.salary,
+      employmentType: raw.employmentType,
+      experienceLevel: raw.experienceLevel,
+      postedDate: raw.postedDate,
+      closingDate: raw.closingDate,
+      externalId: raw.externalId,
+    });
   }
 
   toJSON(): JobPostingJSON {
