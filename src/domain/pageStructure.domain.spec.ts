@@ -6,7 +6,8 @@ const createListSelectors = (overrides: Partial<ListPageSelectors> = {}): ListPa
   jobList: '.job-list',
   jobItem: '.job-card',
   title: '.job-title',
-  department: '.job-company',
+  company: '.job-company',
+  department: '.job-department',
   ...overrides,
 });
 
@@ -102,7 +103,7 @@ describe('PageStructure 도메인', () => {
       ).toThrow("'title' 셀렉터는 필수입니다");
     });
 
-    it('목록 페이지에서 department 셀렉터는 필수이다', () => {
+    it('목록 페이지에서 company 셀렉터는 필수이다', () => {
       // Given
       const now = new Date('2025-01-15T10:00:00Z');
 
@@ -110,10 +111,10 @@ describe('PageStructure 도메인', () => {
       expect(() =>
         PageStructure.createListPage({
           urlPattern: '/jobs',
-          selectors: createListSelectors({ department: '' }),
+          selectors: createListSelectors({ company: '' }),
           analyzedAt: now,
         })
-      ).toThrow("'department' 셀렉터는 필수입니다");
+      ).toThrow("'company' 셀렉터는 필수입니다");
     });
   });
 

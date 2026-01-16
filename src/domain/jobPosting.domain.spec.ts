@@ -132,6 +132,7 @@ describe('JobPosting 도메인', () => {
       expect(json).toEqual({
         id: 'job-001',
         title: 'Senior Software Engineer',
+        sourcePlatform: 'Booking',
         company: 'Booking.com',
         sourceUrl: 'https://jobs.booking.com/booking/jobs/12345',
         crawledAt: '2025-01-15T10:00:00.000Z',
