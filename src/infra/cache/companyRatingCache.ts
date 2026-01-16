@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { CompanyRating, CompanyRatingJSON } from '../../domain/companyRating.domain.js';
+import { parseCsvRow, escapeCsvValue } from '../utils/csvUtils.js';
 
 const DEFAULT_CACHE_PATH = '.cache/company-ratings.csv';
 const BOM = '\uFEFF'; // 엑셀 한글 호환
@@ -119,11 +120,11 @@ export class CompanyRatingCache {
       const rows = Array.from(this.cache.values()).map((rating) => {
         const json = rating.toJSON();
         return [
-          this.escapeCsv(json.companyName),
+          escapeCsvValue(json.companyName),
           json.overallRating !== null ? json.overallRating.toString() : '',
           json.reviewCount !== null ? json.reviewCount.toString() : '',
           json.crawledAt,
-          json.sourceUrl !== null ? this.escapeCsv(json.sourceUrl) : '',
+          json.sourceUrl !== null ? escapeCsvValue(json.sourceUrl) : '',
         ].join(',');
       });
 
@@ -213,7 +214,7 @@ export class CompanyRatingCache {
     const rows: CsvRow[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = this.parseCsvLine(lines[i] || '');
+      const values = parseCsvRow(lines[i] || '');
       if (values.length >= 5) {
         rows.push({
           company: values[0] || '',
@@ -226,53 +227,5 @@ export class CompanyRatingCache {
     }
 
     return rows;
-  }
-
-  /**
-   * CSV 라인 파싱 (따옴표 처리)
-   */
-  private parseCsvLine(line: string): string[] {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      const nextChar = line[i + 1];
-
-      if (inQuotes) {
-        if (char === '"' && nextChar === '"') {
-          current += '"';
-          i++;
-        } else if (char === '"') {
-          inQuotes = false;
-        } else {
-          current += char;
-        }
-      } else {
-        if (char === '"') {
-          inQuotes = true;
-        } else if (char === ',') {
-          values.push(current);
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-    }
-
-    values.push(current);
-    return values;
-  }
-
-  /**
-   * CSV 값 이스케이프
-   */
-  private escapeCsv(value: string): string {
-    if (value.includes(',') || value.includes('\n') || value.includes('\r') || value.includes('"')) {
-      const escaped = value.replace(/"/g, '""');
-      return `"${escaped}"`;
-    }
-    return value;
   }
 }

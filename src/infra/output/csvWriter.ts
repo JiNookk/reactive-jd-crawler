@@ -2,6 +2,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CrawlResult } from '../../app/services/crawlerOrchestrator.js';
+import { parseCsvRow, escapeCsvValue } from '../utils/csvUtils.js';
 
 export interface WriteResult {
   filePath: string;
@@ -34,7 +35,7 @@ export class CsvWriter {
         // URL 컬럼 추출 (sourceUrl은 보통 4번째 컬럼)
         existingUrls = new Set(
           existingRows.map((row) => {
-            const cols = this.parseCSVRow(row);
+            const cols = parseCsvRow(row);
             return cols[3] || ''; // sourceUrl 위치
           })
         );
@@ -68,15 +69,15 @@ export class CsvWriter {
       }
 
       const row = [
-        this.escapeCSV(json.id),
-        this.escapeCSV(json.title),
-        this.escapeCSV(json.company),
-        this.escapeCSV(json.sourceUrl),
-        this.escapeCSV(json.sourcePlatform),
-        this.escapeCSV(json.location || ''),
-        this.escapeCSV(json.department || ''),
-        this.escapeCSV(json.salary || ''),
-        this.escapeCSV(json.crawledAt),
+        escapeCsvValue(json.id),
+        escapeCsvValue(json.title),
+        escapeCsvValue(json.company),
+        escapeCsvValue(json.sourceUrl),
+        escapeCsvValue(json.sourcePlatform),
+        escapeCsvValue(json.location || ''),
+        escapeCsvValue(json.department || ''),
+        escapeCsvValue(json.salary || ''),
+        escapeCsvValue(json.crawledAt),
       ].join(',');
 
       newRows.push(row);
@@ -95,39 +96,5 @@ export class CsvWriter {
       newJobs: newRows.length,
       duplicatesRemoved,
     };
-  }
-
-  private escapeCSV(value: string): string {
-    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-      return `"${value.replace(/"/g, '""')}"`;
-    }
-    return value;
-  }
-
-  private parseCSVRow(row: string): string[] {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < row.length; i++) {
-      const char = row[i];
-
-      if (char === '"') {
-        if (inQuotes && row[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-
-    result.push(current);
-    return result;
   }
 }
