@@ -1,4 +1,5 @@
 // 크롤링 프로세스 전체 조율
+import { Page } from 'playwright';
 import { PageFetcher } from '../../infra/browser/pageFetcher.js';
 import { PageAnalyzer } from '../../infra/llm/pageAnalyzer.js';
 import { DataExtractor } from '../../infra/extractor/dataExtractor.js';
@@ -197,7 +198,7 @@ export class CrawlerOrchestrator {
   }
 
   private async handlePagination(
-    page: any,
+    page: Page,
     structure: PageStructure,
     sourcePlatform: string,
     maxPages: number,
@@ -309,7 +310,7 @@ export class CrawlerOrchestrator {
   }
 
   private async navigateToNextPage(
-    page: any,
+    page: Page,
     pagination: NonNullable<PageStructure['pagination']>,
     targetPage: number,
     jobItemSelector?: string

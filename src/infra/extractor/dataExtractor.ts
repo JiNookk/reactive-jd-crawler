@@ -1,24 +1,10 @@
 // 페이지 구조를 기반으로 데이터 추출
-import { Page } from 'playwright';
+import { Page, ElementHandle } from 'playwright';
 import { PageStructure, ListPageSelectors, DetailPageSelectors } from '../../domain/pageStructure.domain.js';
-import { JobPosting } from '../../domain/jobPosting.domain.js';
+import { JobPosting, RawJobData } from '../../domain/jobPosting.domain.js';
 
-export interface ExtractedJobData {
-  title?: string;
-  company?: string; // 실제 회사명
-  location?: string;
-  department?: string; // 부서/팀
-  detailUrl?: string;
-  description?: string;
-  requirements?: string[];
-  responsibilities?: string[];
-  salary?: string;
-  employmentType?: string;
-  experienceLevel?: string;
-  postedDate?: string;
-  closingDate?: string;
-  externalId?: string;
-}
+// 하위 호환성을 위한 타입 별칭
+export type ExtractedJobData = Partial<RawJobData>;
 
 export class DataExtractor {
   // 목록 페이지에서 직무 데이터 추출
@@ -221,7 +207,7 @@ export class DataExtractor {
     }
   }
 
-  private async extractText(element: any, selector: string): Promise<string | undefined> {
+  private async extractText(element: ElementHandle<Element>, selector: string): Promise<string | undefined> {
     try {
       const el = await element.$(selector);
       if (!el) return undefined;
@@ -232,7 +218,7 @@ export class DataExtractor {
     }
   }
 
-  private async extractHref(element: any, selector: string): Promise<string | undefined> {
+  private async extractHref(element: ElementHandle<Element>, selector: string): Promise<string | undefined> {
     try {
       const el = await element.$(selector);
       if (!el) return undefined;
