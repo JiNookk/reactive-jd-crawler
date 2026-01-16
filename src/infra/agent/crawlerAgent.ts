@@ -610,18 +610,15 @@ URL: ${url}
     this.logger.log(`${"═".repeat(70)}`);
     this.logger.close();
 
-    return this.state.extractedJobs.map((job) =>
-      JobPosting.create({
-        id: uuidv4(),
-        title: job.title,
-        sourcePlatform: this.company,
-        company: job.company || "",
-        sourceUrl: job.detailUrl || url,
-        crawledAt: new Date(),
-        location: job.location,
-        department: job.department,
-      })
-    );
+    return this.state.extractedJobs
+      .filter((job) => job.company) // company가 없는 항목 필터링
+      .map((job) =>
+        JobPosting.fromRaw(job, {
+          id: uuidv4(),
+          sourcePlatform: this.company,
+          sourceUrl: url,
+        })
+      );
   }
 
   /**

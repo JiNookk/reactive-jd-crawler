@@ -11,42 +11,20 @@ import {
   ExtractJobDetailInput,
   DoneInput,
 } from './tools.js';
+import { RawJobData } from '../../domain/jobPosting.domain.js';
+import {
+  PageInfo,
+  SelectorCandidate,
+  JobLink,
+  ButtonInfo,
+  FilterInfo,
+  DetectedPagination,
+  PaginationTypeValue,
+} from '../../domain/pageInfo.domain.js';
 
-export interface ExtractedJob {
-  title: string;
-  company?: string; // 실제 회사명
-  location?: string;
-  department?: string; // 부서/팀 (optional)
-  detailUrl?: string;
-}
-
-export interface PageInfo {
-  url: string;
-  title: string;
-  // 셀렉터 후보들 (Agent가 어떤 셀렉터를 시도할지 결정하는 데 사용)
-  selectorCandidates: { selector: string; count: number; sample: string }[];
-  // 직무 관련 링크들 (Engineer, Manager 등 직함이 포함된 링크)
-  jobLinks: { text: string; href: string; parentClass: string }[];
-  // 버튼들
-  visibleButtons: { text: string; selector: string; tagName: string }[];
-  // 페이지네이션 정보
-  paginationInfo: string | null;
-  // 페이지네이션 타입 감지
-  paginationType: {
-    type: 'button' | 'load-more' | 'infinite-scroll' | 'url-param' | 'none' | 'unknown';
-    nextSelector?: string;
-    loadMoreSelector?: string;
-    currentPage?: number;
-    totalPages?: number;
-    urlPattern?: string;
-  };
-  // 필터/드롭다운 정보
-  filterInfo: { text: string; tagName: string; className: string }[];
-  // 모달 여부
-  hasModal: boolean;
-  // 결과 수 표시 (예: "123 jobs")
-  resultCount: string | null;
-}
+// 하위 호환성을 위한 타입 re-export
+export type ExtractedJob = RawJobData;
+export type { PageInfo };
 
 export class ToolExecutor {
   constructor(
